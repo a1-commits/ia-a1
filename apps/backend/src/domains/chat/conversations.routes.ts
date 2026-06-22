@@ -8,7 +8,6 @@ import { mkdir, writeFile } from 'fs/promises';
 import { env, isOpenAiConfigured } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { authMiddleware } from '../../middleware/authMiddleware';
-import { env } from '../../config/env';
 import { analyzeLeadConversation } from '../../ai/lead-decision-engine';
 import { createSalesHandoff, getSalesHandoffForConversation } from '../sales/handoff.service';
 import { createImageJob, getLatestImageJobForConversation, startImageJob } from './imageGeneration.service';
