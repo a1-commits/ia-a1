@@ -1,0 +1,16 @@
+{
+  "id": "conversation_id_ou_jid",
+  "canal": "whatsapp",
+  "participante": "",
+  "resumo": "",
+  "fatosConfirmados": [],
+  "decisoesTomadas": [],
+  "pendencias": [],
+  "proximaAcao": {
+    "acao": "",
+    "responsavel": "",
+    "prazo": ""
+  },
+  "ultimaInteracaoEm": "",
+  "updatedAt": "2026-04-21T00:00:00.000Z"
+}

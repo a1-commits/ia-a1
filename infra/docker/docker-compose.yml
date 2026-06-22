@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agente-mobi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agente}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agente}
+      POSTGRES_DB: ${POSTGRES_DB:-agente_mobi}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-agente} -d ${POSTGRES_DB:-agente_mobi}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.backend
+    container_name: agente-mobi-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agente}:${POSTGRES_PASSWORD:-agente}@postgres:5432/${POSTGRES_DB:-agente_mobi}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    volumes:
+      - ../../storage:/app/storage
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    container_name: agente-mobi-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  pgdata:

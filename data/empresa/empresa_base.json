@@ -1,0 +1,44 @@
+{
+  "nome": "Moble Marcenaria",
+  "servicos": [
+    "Moveis sob medida residenciais",
+    "Moveis sob medida corporativos",
+    "Projeto executivo e detalhamento",
+    "Instalacao e pos-venda"
+  ],
+  "regioesAtendidas": [
+    "Londrina e regiao",
+    "Atendimento sob consulta em cidades proximas"
+  ],
+  "processoComercial": {
+    "etapas": [
+      "Primeiro contato",
+      "Qualificacao",
+      "Levantamento de medidas e referencias",
+      "Proposta",
+      "Ajustes e fechamento",
+      "Producao e instalacao"
+    ]
+  },
+  "prazos": {
+    "observacao": "Os prazos variam por complexidade e agenda. Confirmar sempre no fechamento.",
+    "padraoAproximado": "Definir no comercial"
+  },
+  "materiaisLinhas": [
+    "MDF padrao",
+    "MDF premium",
+    "Ferragens conforme projeto"
+  ],
+  "garantia": {
+    "politica": "Conforme contrato e escopo aprovado"
+  },
+  "politicaPagamento": {
+    "regraGeral": "Definir condicoes no fechamento comercial"
+  },
+  "regrasInternas": [
+    "Nao prometer prazo sem validar com producao",
+    "Registrar sempre proximo passo no atendimento",
+    "Nao informar preco final sem dados minimos de projeto"
+  ],
+  "updatedAt": "2026-04-21T00:00:00.000Z"
+}

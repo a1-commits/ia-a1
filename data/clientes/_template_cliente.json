@@ -1,0 +1,23 @@
+{
+  "id": "cliente_slug_ou_telefone",
+  "nome": "",
+  "contato": {
+    "telefone": "",
+    "email": ""
+  },
+  "origemLead": "",
+  "interesse": "",
+  "estagio": "novo",
+  "orcamentoEstimado": "",
+  "necessidades": [],
+  "objecoes": [],
+  "historicoResumido": "",
+  "pendencias": [],
+  "proximoPasso": {
+    "acao": "",
+    "responsavel": "",
+    "prazo": ""
+  },
+  "tags": [],
+  "updatedAt": "2026-04-21T00:00:00.000Z"
+}

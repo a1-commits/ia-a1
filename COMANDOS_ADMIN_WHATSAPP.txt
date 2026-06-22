@@ -1,0 +1,47 @@
+COMANDOS ADMIN - AGENTE MOBI (WHATSAPP)
+
+1) !status
+- Mostra status atual do WhatsApp (conectado/desconectado) e modo de atendimento de clientes.
+
+2) !pausar | !manual | !pause
+- Desliga respostas automaticas para clientes.
+- Voce continua conversando com o agente normalmente como admin.
+
+3) !agente | !ativar | !auto
+- Liga respostas automaticas para clientes novamente.
+
+4) !briefing
+- Envia o briefing executivo formal do admin sob demanda.
+- O briefing automatico tambem pode aparecer no inicio da sessao.
+
+5) !lembrar HH:MM <texto>
+- Cria lembrete para hoje no horario informado.
+- Se o horario ja passou, agenda automaticamente para o dia seguinte.
+- Exemplo:
+  !lembrar 09:00 Comprar fita de borda da Lilian
+
+6) !lembrar YYYY-MM-DD HH:MM <texto>
+- Cria lembrete com data e hora exatas.
+- Exemplo:
+  !lembrar 2026-04-24 14:30 Reuniao com fornecedor
+
+7) !lembrete ...
+- Alias de !lembrar (mesmos formatos e comportamento).
+
+8) Lancamento financeiro por mensagem natural (admin)
+- Entrada:
+  entrada 1500 venda armario
+  recebi 420 pix cliente joao
+- Saida:
+  saida 230 material mdf
+  paguei 89 combustivel
+- O agente registra automaticamente como memoria financeira estruturada.
+
+9) !caixa ou !financeiro
+- Mostra resumo financeiro do dia:
+  entradas, saidas e saldo.
+
+OBSERVACOES
+- Comandos acima funcionam para numero reconhecido como admin/fundador.
+- Lembretes sao persistentes no banco e enviados automaticamente no horario.
+- Para evitar repeticao, o briefing automatico segue janela de sessao.

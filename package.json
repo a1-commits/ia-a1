@@ -1,0 +1,22 @@
+{
+  "name": "agente-mobi",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=@agente-mobi/backend",
+    "dev:frontend": "npm run dev --workspace=@agente-mobi/frontend",
+    "dev:frontend:lan": "npm run dev:lan --workspace=@agente-mobi/frontend",
+    "build": "npm run build --workspace=@agente-mobi/shared && npm run build --workspace=@agente-mobi/backend && npm run build --workspace=@agente-mobi/frontend",
+    "db:generate": "npm run db:generate --workspace=@agente-mobi/backend",
+    "db:migrate": "npm run db:migrate --workspace=@agente-mobi/backend",
+    "db:seed": "npm run db:seed --workspace=@agente-mobi/backend",
+    "docker:postgres": "docker compose -f infra/docker/docker-compose.yml up -d postgres",
+    "docker:up": "docker compose -f infra/docker/docker-compose.yml up --build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

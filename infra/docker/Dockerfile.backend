@@ -1,0 +1,19 @@
+FROM node:20-alpine
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages ./packages
+COPY apps ./apps
+
+RUN npm ci
+
+RUN npm run db:generate --workspace=@agente-mobi/backend
+RUN npm run build --workspace=@agente-mobi/backend
+
+WORKDIR /app/apps/backend
+
+ENV NODE_ENV=production
+
+EXPOSE 4000
+
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/server.js"]

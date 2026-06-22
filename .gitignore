@@ -1,0 +1,9 @@
+.env
+.env.*
+node_modules/
+storage/
+apps/backend/storage/
+apps/backend/storage/whatsapp-auth/
+apps/backend/storage/whatsapp-qr.png
+.next/
+dist/

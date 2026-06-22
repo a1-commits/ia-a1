@@ -1,0 +1,16 @@
+node_modules
+.next
+dist
+.git
+**/.env
+**/.env.local
+storage/logs/*
+storage/uploads/*
+storage/backups/*
+storage/memory/*
+storage/exports/*
+!storage/**/.gitkeep
+npm-debug.log*
+coverage
+*.md
+!README.md

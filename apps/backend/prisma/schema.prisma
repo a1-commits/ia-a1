@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ContextType {
+  PESSOAL
+  MOBLE
+  KARRUN
+  GERAL
+}
+
+enum MemoryType {
+  TEMPORARIA
+  PERMANENTE
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+  READONLY
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  APPROVED
+  LOST
+}
+
+enum ImageJobStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  name         String?
+  role         UserRole       @default(OPERATOR)
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  conversations Conversation[]
+  memories     Memory[]
+  tasks        Task[]
+  reflections  Reflection[]
+  settings     Setting[]
+  refreshTokens   RefreshToken[]
+  integrationLinks IntegrationLink[]
+  proposals    Proposal[]
+  generatedImages GeneratedImage[]
+  customerContexts CustomerContext[]
+}
+
+model Conversation {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String?
+  context        ContextType @default(GERAL)
+  pinned         Boolean     @default(false)
+  archived       Boolean     @default(false)
+  lastMessageAt  DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  messages       Message[]
+  proposals      Proposal[]
+  generatedImages GeneratedImage[]
+  imageJobs      ImageJob[]
+
+  @@index([userId])
+  @@index([userId, archived, pinned])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+}
+
+model Memory {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  context   ContextType @default(GERAL)
+  type      MemoryType  @default(PERMANENTE)
+  /// Vetor de embedding (OpenAI text-embedding-3-small, 1536 dims) para busca semântica
+  embedding Json?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([context])
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  context     ContextType  @default(GERAL)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([context])
+}
+
+model Proposal {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   Conversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  title          String
+  content        String
+  summary        String?
+  status         ProposalStatus @default(DRAFT)
+  valueEstimate  Float?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([conversationId])
+  @@index([status])
+}
+
+model GeneratedImage {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  title          String
+  prompt         String
+  revisedPrompt  String?
+  brief          Json?
+  fileName       String
+  storagePath    String
+  mimeType       String       @default("image/png")
+  byteSize       Int
+  createdAt      DateTime     @default(now())
+  imageJobs      ImageJob[]
+
+  @@index([userId])
+  @@index([conversationId])
+}
+
+model ImageJob {
+  id               String         @id @default(cuid())
+  conversationId   String
+  conversation     Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  status           ImageJobStatus @default(PENDING)
+  visualBrief      Json
+  prompt           String
+  generatedImageId String?
+  generatedImage   GeneratedImage? @relation(fields: [generatedImageId], references: [id], onDelete: SetNull)
+  errorMessage     String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([conversationId])
+  @@index([status])
+}
+
+model CustomerContext {
+  id                  String      @id @default(cuid())
+  userId              String
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone               String?
+  whatsappId          String?
+  name                String?
+  lastConversationId  String?
+  lastInteractionAt   DateTime?
+  currentProject      Json?
+  conversationSummary String?
+  pendingQuestions    Json?
+  nextSuggestedAction String?
+  status              String      @default("novo")
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([lastConversationId])
+  @@unique([userId, phone])
+  @@unique([userId, whatsappId])
+}
+
+model Reflection {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  context   ContextType @default(GERAL)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([userId])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+}
+
+enum IntegrationProvider {
+  ONEDRIVE
+  WHATSAPP
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Estado de integrações externas (OneDrive, WhatsApp Business API, etc.)
+model IntegrationLink {
+  id          String              @id @default(cuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider    IntegrationProvider
+  status      String              @default("disconnected")
+  externalId  String?
+  metadata    Json?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([userId, provider])
+}
