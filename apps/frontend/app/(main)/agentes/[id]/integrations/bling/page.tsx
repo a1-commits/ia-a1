@@ -52,6 +52,10 @@ export default function BlingIntegrationPage(): React.ReactElement {
     if (searchParams.get('connected')) {
       setFeedback('Loja Bling conectada com sucesso.');
     }
+    const error = searchParams.get('error');
+    if (error) {
+      setFeedback(decodeURIComponent(error));
+    }
   }, [searchParams]);
 
   async function handleCreate(e: React.FormEvent): Promise<void> {

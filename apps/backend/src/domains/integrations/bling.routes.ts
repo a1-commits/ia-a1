@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../../middleware/authMiddleware';
 import { createRateLimit } from '../../middleware/rateLimit';
@@ -21,25 +21,46 @@ const stockRateLimit = createRateLimit({
   message: 'Muitas consultas de estoque. Aguarde um minuto.',
 });
 
+function blingFrontendBase(): string {
+  return env.BLING_REDIRECT_URI.includes('localhost:4000')
+    ? 'http://localhost:3000'
+    : env.BLING_REDIRECT_URI.replace(/\/api\/integrations\/bling\/callback.*/, '');
+}
+
+function redirectBlingOAuthResult(
+  res: Response,
+  result:
+    | { ok: true; agentId: string; connectionId: string }
+    | { ok: false; reason: string; agentId?: string },
+): void {
+  if (result.ok) {
+    res.redirect(
+      `${blingFrontendBase()}/agentes/${result.agentId}/integrations/bling?connected=${result.connectionId}`,
+    );
+    return;
+  }
+
+  const message = encodeURIComponent(result.reason);
+  if (result.agentId) {
+    res.redirect(
+      `${blingFrontendBase()}/agentes/${result.agentId}/integrations/bling?error=${message}`,
+    );
+    return;
+  }
+
+  res.redirect(`${blingFrontendBase()}/agentes?blingError=${message}`);
+}
+
 blingRouter.get('/callback', async (req, res, next) => {
   try {
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     const state = typeof req.query.state === 'string' ? req.query.state : '';
     if (!code || !state) {
-      res.status(400).send('Callback OAuth inválido.');
+      res.redirect(`${blingFrontendBase()}/agentes?blingError=${encodeURIComponent('Callback OAuth inválido.')}`);
       return;
     }
     const result = await handleBlingOAuthCallback({ code, state });
-    if (!result.ok) {
-      res.status(400).send(`Falha ao conectar Bling: ${result.reason}`);
-      return;
-    }
-    const frontendBase = env.BLING_REDIRECT_URI.includes('localhost:4000')
-      ? 'http://localhost:3000'
-      : env.BLING_REDIRECT_URI.replace(/\/api\/integrations\/bling\/callback.*/, '');
-    res.redirect(
-      `${frontendBase}/agentes/${result.agentId}/integrations/bling?connected=${result.connectionId}`,
-    );
+    redirectBlingOAuthResult(res, result);
   } catch (e) {
     next(e);
   }

@@ -211,20 +211,23 @@ export async function buildBlingConnectUrl(userId: string, connectionId: string)
 export async function handleBlingOAuthCallback(input: {
   code: string;
   state: string;
-}): Promise<{ ok: true; agentId: string; connectionId: string } | { ok: false; reason: string }> {
+}): Promise<
+  | { ok: true; agentId: string; connectionId: string }
+  | { ok: false; reason: string; agentId?: string }
+> {
   const row = await prisma.blingConnection.findFirst({
     where: { oauthState: input.state, isActive: true },
   });
   if (!row) return { ok: false, reason: 'State OAuth inválido.' };
   if (!row.oauthStateExpiresAt || row.oauthStateExpiresAt.getTime() < Date.now()) {
-    return { ok: false, reason: 'State OAuth expirado.' };
+    return { ok: false, reason: 'State OAuth expirado.', agentId: row.agentId };
   }
 
   let clientSecret: string;
   try {
     clientSecret = decryptSecret(row.clientSecretEncrypted);
   } catch {
-    return { ok: false, reason: 'Falha ao descriptografar credenciais.' };
+    return { ok: false, reason: 'Falha ao descriptografar credenciais.', agentId: row.agentId };
   }
 
   const exchanged = await exchangeBlingToken({
@@ -247,7 +250,7 @@ export async function handleBlingOAuthCallback(input: {
         oauthStateExpiresAt: null,
       },
     });
-    return { ok: false, reason: exchanged.reason };
+    return { ok: false, reason: exchanged.reason, agentId: row.agentId };
   }
 
   await prisma.blingConnection.update({
