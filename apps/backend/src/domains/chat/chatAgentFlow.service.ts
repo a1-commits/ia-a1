@@ -1,4 +1,4 @@
-import { ContextType, MessageRole } from '@prisma/client';
+import { ContextType, MessageRole, type Agent } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { generateAssistantReply, syncAiRuntimePreference } from '../ai/aiService';
 import { buildDynamicAgentPrompt } from '../agents/agentPrompt.service';
@@ -25,7 +25,21 @@ import {
   type ErpNaturalIntent,
 } from '../integrations/olistWhatsAppAgent.service';
 import { setErpWritePendingForWeb, takeErpWritePendingForWeb } from '../integrations/erpWebWritePendingStore';
-import { findOrCreateCustomerContext, findRecentConversationIdForCustomer } from '../customers/customerContext.service';
+import {
+  findOrCreateCustomerContext,
+  findRecentConversationIdForCustomer,
+  updateCustomerContextAfterInteraction,
+  type CustomerContextRecord,
+} from '../customers/customerContext.service';
+import {
+  type ConversationChannel,
+  type ConversationIdentityMeta,
+  prepareConversationForMessage,
+  promptChannelToStorageChannel,
+  resolveContactIdentifier,
+  syncConversationAfterTurn,
+  type ConversationWithRelations,
+} from './conversationIdentity.service';
 
 export type ProcessAgentMessageInput = {
   userId: string;
@@ -38,6 +52,8 @@ export type ProcessAgentMessageInput = {
   customerWhatsappId?: string;
   customerName?: string;
   assignedAgentId?: string | null;
+  forceNew?: boolean;
+  agentTest?: boolean;
 };
 
 export type ProcessAgentMessageOutput = {
@@ -51,6 +67,8 @@ export type ProcessAgentMessageOutput = {
     createdAt: Date;
   };
   agentMeta: AgentMeta;
+  agentName: string;
+  conversationIdentity: ConversationIdentityMeta;
 };
 
 function routerAgentMeta(input: {
@@ -67,17 +85,87 @@ function routerAgentMeta(input: {
   };
 }
 
+type TurnContext = {
+  userId: string;
+  storageChannel: ConversationChannel;
+  conversationId: string;
+  contactId: string | null;
+  contactDisplayName: string | null;
+  contactIdentifier: string | null;
+  customerContext: CustomerContextRecord | null;
+  userContent: string;
+};
+
+async function completeTurn(input: {
+  turn: TurnContext;
+  userMsg: ProcessAgentMessageOutput['userMessage'];
+  assistantMsg: ProcessAgentMessageOutput['assistantMessage'];
+  agentMeta: AgentMeta;
+  agent: Pick<Agent, 'id' | 'name'>;
+}): Promise<ProcessAgentMessageOutput> {
+  const conversationIdentity = await syncConversationAfterTurn({
+    conversationId: input.turn.conversationId,
+    userId: input.turn.userId,
+    lastMessageContent: input.assistantMsg.content,
+    agent: input.agent,
+    contactId: input.turn.contactId,
+    contactName: input.turn.contactDisplayName,
+    contactIdentifier: input.turn.contactIdentifier,
+    channel: input.turn.storageChannel,
+  });
+
+  if (input.turn.customerContext) {
+    const history = await prisma.message.findMany({
+      where: { conversationId: input.turn.conversationId },
+      orderBy: { createdAt: 'asc' },
+      take: ROUTER_HISTORY_MESSAGES,
+      select: { role: true, content: true },
+    });
+    await updateCustomerContextAfterInteraction({
+      context: input.turn.customerContext,
+      userId: input.turn.userId,
+      conversationId: input.turn.conversationId,
+      messages: history,
+    });
+  }
+
+  return {
+    conversationId: input.turn.conversationId,
+    userMessage: input.userMsg,
+    assistantMessage: input.assistantMsg,
+    agentMeta: input.agentMeta,
+    agentName: input.agent.name,
+    conversationIdentity,
+  };
+}
+
+async function resolveTurnAgent(
+  userId: string,
+  input: ProcessAgentMessageInput,
+  conversation: ConversationWithRelations,
+): Promise<Agent> {
+  return resolveAgentForMessage({
+    userId,
+    agentId: input.assignedAgentId,
+    agentTest: input.agentTest,
+    phone: input.customerPhone,
+    whatsappId: input.customerWhatsappId,
+    contactId: conversation.contactId,
+    conversationAgentId: conversation.agentId,
+  });
+}
+
 async function finalizeRouterAgentReply(input: {
   channel: AgentPromptChannel;
-  conversationId: string;
+  turn: TurnContext;
   userMsg: ProcessAgentMessageOutput['userMessage'];
   contactDisplayName?: string | null;
-  agent: Awaited<ReturnType<typeof resolveAgentForMessage>>;
+  agent: Agent;
 }): Promise<ProcessAgentMessageOutput> {
-  const { channel, conversationId, userMsg, contactDisplayName, agent } = input;
+  const { channel, turn, userMsg, contactDisplayName, agent } = input;
 
   const history = await prisma.message.findMany({
-    where: { conversationId },
+    where: { conversationId: turn.conversationId },
     orderBy: { createdAt: 'asc' },
     take: ROUTER_HISTORY_MESSAGES,
   });
@@ -117,23 +205,19 @@ async function finalizeRouterAgentReply(input: {
 
   const assistantMsg = await prisma.message.create({
     data: {
-      conversationId,
+      conversationId: turn.conversationId,
       role: MessageRole.ASSISTANT,
       content: replyText,
     },
   });
 
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { updatedAt: new Date(), lastMessageAt: new Date() },
-  });
-
-  return {
-    conversationId,
-    userMessage: userMsg,
-    assistantMessage: assistantMsg,
+  return completeTurn({
+    turn,
+    userMsg,
+    assistantMsg,
     agentMeta: routerAgentMeta({ interpretation, routerCategory }),
-  };
+    agent,
+  });
 }
 
 export async function processAgentMessage(
@@ -143,7 +227,6 @@ export async function processAgentMessage(
   const channel: AgentPromptChannel = input.channel ?? 'web';
   await syncAiRuntimePreference(userId);
 
-  let conversationId = input.conversationId;
   const customerContext =
     input.customerPhone || input.customerWhatsappId
       ? await findOrCreateCustomerContext({
@@ -154,30 +237,47 @@ export async function processAgentMessage(
         })
       : null;
 
-  if (!conversationId && customerContext) {
-    conversationId = await findRecentConversationIdForCustomer(customerContext, 30) ?? undefined;
-  }
+  const customerContextConversationId =
+    !input.conversationId && customerContext
+      ? await findRecentConversationIdForCustomer(customerContext, 30)
+      : null;
 
-  if (!conversationId) {
-    const initialTitle =
-      input.conversationTitle?.trim() ||
-      (channel === 'whatsapp_admin' ? 'WhatsApp · operador' : input.content.slice(0, 80));
-    const conv = await prisma.conversation.create({
-      data: {
-        userId,
-        context: channel === 'whatsapp_admin' ? ContextType.GERAL : (input.context ?? ContextType.GERAL),
-        title: initialTitle.slice(0, 80),
-      },
-    });
-    conversationId = conv.id;
-  } else {
-    const conv = await prisma.conversation.findFirst({
-      where: { id: conversationId, userId },
-    });
-    if (!conv) {
-      throw new Error('Conversa não encontrada');
-    }
-  }
+  const conversation = await prepareConversationForMessage({
+    userId,
+    conversationId: input.conversationId,
+    forceNew: input.forceNew,
+    promptChannel: channel,
+    agentTest: input.agentTest,
+    context: channel === 'whatsapp_admin' ? ContextType.GERAL : (input.context ?? ContextType.GERAL),
+    assignedAgentId: input.assignedAgentId,
+    customerPhone: input.customerPhone,
+    customerWhatsappId: input.customerWhatsappId,
+    customerName: input.customerName,
+    conversationTitle: input.conversationTitle,
+    customerContextConversationId,
+  });
+
+  const conversationId = conversation.id;
+  const storageChannel = promptChannelToStorageChannel(channel, input.agentTest);
+  const contactDisplayName =
+    input.customerName?.trim() || customerContext?.name?.trim() || conversation.contact?.name?.trim() || null;
+  const contactIdentifier = resolveContactIdentifier({
+    contact: conversation.contact,
+    phone: input.customerPhone,
+    whatsappId: input.customerWhatsappId,
+    storedIdentifier: conversation.contactIdentifier,
+  });
+
+  const turn: TurnContext = {
+    userId,
+    storageChannel,
+    conversationId,
+    contactId: conversation.contactId,
+    contactDisplayName,
+    contactIdentifier,
+    customerContext,
+    userContent: input.content,
+  };
 
   const userMsg = await prisma.message.create({
     data: {
@@ -187,10 +287,13 @@ export async function processAgentMessage(
     },
   });
 
+  let activeConversation = conversation;
+
   if (channel === 'web') {
     const confirmM = input.content.match(/^\s*!?\s*confirmar\s+([A-Z0-9]+)\s*$/i);
     if (confirmM) {
       const took = await takeErpWritePendingForWeb(userId, confirmM[1]!);
+      const agent = await resolveTurnAgent(userId, input, activeConversation);
       if (took.ok) {
         let parsed: ErpNaturalIntent;
         try {
@@ -203,14 +306,10 @@ export async function processAgentMessage(
               content: 'Confirmação inválida (dados corrompidos). Refaça a inclusão e peça o novo código.',
             },
           });
-          await prisma.conversation.update({
-            where: { id: conversationId },
-            data: { updatedAt: new Date(), lastMessageAt: new Date() },
-          });
-          return {
-            conversationId,
-            userMessage: userMsg,
-            assistantMessage: assistantMsg,
+          return completeTurn({
+            turn,
+            userMsg,
+            assistantMsg,
             agentMeta: routerAgentMeta({
               interpretation: {
                 context: ContextType.GERAL,
@@ -220,7 +319,8 @@ export async function processAgentMessage(
               },
               routerCategory: null,
             }),
-          };
+            agent,
+          });
         }
         if (parsed.type === 'write') {
           const w = await executeErpWriteIntent(userId, parsed.intent);
@@ -230,14 +330,10 @@ export async function processAgentMessage(
           const assistantMsg = await prisma.message.create({
             data: { conversationId, role: MessageRole.ASSISTANT, content: replyText },
           });
-          await prisma.conversation.update({
-            where: { id: conversationId },
-            data: { updatedAt: new Date(), lastMessageAt: new Date() },
-          });
-          return {
-            conversationId,
-            userMessage: userMsg,
-            assistantMessage: assistantMsg,
+          return completeTurn({
+            turn,
+            userMsg,
+            assistantMsg,
             agentMeta: routerAgentMeta({
               interpretation: {
                 context: ContextType.GERAL,
@@ -247,20 +343,17 @@ export async function processAgentMessage(
               },
               routerCategory: null,
             }),
-          };
+            agent,
+          });
         }
       } else {
         const assistantMsg = await prisma.message.create({
           data: { conversationId, role: MessageRole.ASSISTANT, content: took.reason },
         });
-        await prisma.conversation.update({
-          where: { id: conversationId },
-          data: { updatedAt: new Date(), lastMessageAt: new Date() },
-        });
-        return {
-          conversationId,
-          userMessage: userMsg,
-          assistantMessage: assistantMsg,
+        return completeTurn({
+          turn,
+          userMsg,
+          assistantMsg,
           agentMeta: routerAgentMeta({
             interpretation: {
               context: ContextType.GERAL,
@@ -270,7 +363,8 @@ export async function processAgentMessage(
             },
             routerCategory: null,
           }),
-        };
+          agent,
+        });
       }
     }
   }
@@ -278,19 +372,17 @@ export async function processAgentMessage(
   const erpIntentEarly =
     channel === 'web' || channel === 'whatsapp_admin' ? detectErpNaturalIntent(input.content) : { type: 'none' as const };
 
+  const turnAgent = await resolveTurnAgent(userId, input, activeConversation);
+
   if (erpIntentEarly.type === 'erp_hint') {
     const replyText = repairBrokenAccents(erpIntentEarly.text.slice(0, 12_000));
     const assistantMsg = await prisma.message.create({
       data: { conversationId, role: MessageRole.ASSISTANT, content: replyText },
     });
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date(), lastMessageAt: new Date() },
-    });
-    return {
-      conversationId,
-      userMessage: userMsg,
-      assistantMessage: assistantMsg,
+    return completeTurn({
+      turn,
+      userMsg,
+      assistantMsg,
       agentMeta: routerAgentMeta({
         interpretation: {
           context: ContextType.GERAL,
@@ -300,7 +392,8 @@ export async function processAgentMessage(
         },
         routerCategory: null,
       }),
-    };
+      agent: turnAgent,
+    });
   }
 
   if (channel === 'web' && erpIntentEarly.type === 'write') {
@@ -315,14 +408,10 @@ export async function processAgentMessage(
     const assistantMsg = await prisma.message.create({
       data: { conversationId, role: MessageRole.ASSISTANT, content: replyText },
     });
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date(), lastMessageAt: new Date() },
-    });
-    return {
-      conversationId,
-      userMessage: userMsg,
-      assistantMessage: assistantMsg,
+    return completeTurn({
+      turn,
+      userMsg,
+      assistantMsg,
       agentMeta: routerAgentMeta({
         interpretation: {
           context: ContextType.GERAL,
@@ -332,7 +421,8 @@ export async function processAgentMessage(
         },
         routerCategory: null,
       }),
-    };
+      agent: turnAgent,
+    });
   }
 
   if (erpIntentEarly.type === 'read') {
@@ -346,14 +436,10 @@ export async function processAgentMessage(
           content: replyText,
         },
       });
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { updatedAt: new Date(), lastMessageAt: new Date() },
-      });
-      return {
-        conversationId,
-        userMessage: userMsg,
-        assistantMessage: assistantMsg,
+      return completeTurn({
+        turn,
+        userMsg,
+        assistantMsg,
         agentMeta: routerAgentMeta({
           interpretation: {
             context: ContextType.GERAL,
@@ -363,20 +449,17 @@ export async function processAgentMessage(
           },
           routerCategory: null,
         }),
-      };
+        agent: turnAgent,
+      });
     }
     const errText = `Não foi possível consultar a Olist de forma fática. Detalhe: ${read.reason}`;
     const assistantMsg = await prisma.message.create({
       data: { conversationId, role: MessageRole.ASSISTANT, content: errText },
     });
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date(), lastMessageAt: new Date() },
-    });
-    return {
-      conversationId,
-      userMessage: userMsg,
-      assistantMessage: assistantMsg,
+    return completeTurn({
+      turn,
+      userMsg,
+      assistantMsg,
       agentMeta: routerAgentMeta({
         interpretation: {
           context: ContextType.GERAL,
@@ -386,18 +469,11 @@ export async function processAgentMessage(
         },
         routerCategory: null,
       }),
-    };
+      agent: turnAgent,
+    });
   }
 
-  const contactDisplayName =
-    input.customerName?.trim() || customerContext?.name?.trim() || null;
-
-  const resolvedAgent = await resolveAgentForMessage({
-    userId,
-    agentId: input.assignedAgentId,
-    phone: input.customerPhone,
-    whatsappId: input.customerWhatsappId,
-  });
+  const resolvedAgent = await resolveTurnAgent(userId, input, activeConversation);
 
   const blingReply = await tryHandleBlingStockQuery({
     userId,
@@ -408,14 +484,10 @@ export async function processAgentMessage(
     const assistantMsg = await prisma.message.create({
       data: { conversationId, role: MessageRole.ASSISTANT, content: blingReply },
     });
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date(), lastMessageAt: new Date() },
-    });
-    return {
-      conversationId,
-      userMessage: userMsg,
-      assistantMessage: assistantMsg,
+    return completeTurn({
+      turn,
+      userMsg,
+      assistantMsg,
       agentMeta: routerAgentMeta({
         interpretation: {
           context: ContextType.GERAL,
@@ -425,24 +497,48 @@ export async function processAgentMessage(
         },
         routerCategory: null,
       }),
-    };
+      agent: resolvedAgent,
+    });
   }
 
   if (input.customerPhone || input.customerWhatsappId) {
-    await touchContactInteraction({
+    const contact = await touchContactInteraction({
       userId,
       phone: input.customerPhone,
       whatsappId: input.customerWhatsappId,
       name: contactDisplayName,
       lastMessage: input.content.slice(0, 200),
     });
+    if (contact) {
+      turn.contactId = contact.id;
+      const updateData: { contactId: string; agentId?: string } = { contactId: contact.id };
+      if (contact.agentId) updateData.agentId = contact.agentId;
+      activeConversation = await prisma.conversation.update({
+        where: { id: conversationId },
+        data: updateData,
+        include: {
+          contact: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              whatsappId: true,
+              contactAgent: { include: { agent: { select: { id: true, name: true, isActive: true } } } },
+            },
+          },
+          agent: { select: { id: true, name: true, isActive: true } },
+        },
+      });
+    }
   }
+
+  const finalAgent = await resolveTurnAgent(userId, input, activeConversation);
 
   return finalizeRouterAgentReply({
     channel,
-    conversationId,
+    turn,
     userMsg,
     contactDisplayName,
-    agent: resolvedAgent,
+    agent: finalAgent,
   });
 }

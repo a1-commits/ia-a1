@@ -238,9 +238,9 @@ export async function touchContactInteraction(input: {
   whatsappId?: string | null;
   name?: string | null;
   lastMessage?: string;
-}): Promise<void> {
-  if (!input.phone && !input.whatsappId) return;
-  await upsertContactFromWhatsApp({
+}): Promise<ContactDto | null> {
+  if (!input.phone && !input.whatsappId) return null;
+  return upsertContactFromWhatsApp({
     userId: input.userId,
     number: input.phone ?? input.whatsappId ?? '',
     whatsappId: input.whatsappId,

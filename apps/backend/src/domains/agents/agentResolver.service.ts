@@ -6,18 +6,38 @@ import {
   ensureDefaultAgent,
 } from './agent.service';
 
-export async function resolveAgentForMessage(input: {
+export type AgentCandidate = Pick<Agent, 'id' | 'name' | 'isActive'>;
+
+export function selectAgentForMessage(input: {
+  agentTest?: boolean;
+  explicitAgent?: AgentCandidate | null;
+  contactAssignedAgent?: AgentCandidate | null;
+  conversationAgent?: AgentCandidate | null;
+  defaultAgent: AgentCandidate;
+}): AgentCandidate {
+  if (input.agentTest && input.explicitAgent?.isActive) {
+    return input.explicitAgent;
+  }
+  if (input.contactAssignedAgent?.isActive) {
+    return input.contactAssignedAgent;
+  }
+  if (input.conversationAgent?.isActive) {
+    return input.conversationAgent;
+  }
+  return input.defaultAgent;
+}
+
+async function findContactWithBinding(input: {
   userId: string;
-  agentId?: string | null;
+  contactId?: string | null;
   phone?: string | null;
   whatsappId?: string | null;
-}): Promise<Agent> {
-  const { userId } = input;
-  await ensureDefaultAgent(userId);
-
-  if (input.agentId) {
-    const explicit = await getAgentRecordById(userId, input.agentId);
-    if (explicit?.isActive) return explicit;
+}) {
+  if (input.contactId) {
+    return prisma.contact.findFirst({
+      where: { id: input.contactId, userId: input.userId },
+      include: { contactAgent: { include: { agent: true } } },
+    });
   }
 
   const phoneDigits = input.phone?.replace(/\D/g, '') ?? '';
@@ -28,19 +48,52 @@ export async function resolveAgentForMessage(input: {
   if (input.whatsappId) {
     orConditions.push({ whatsappId: input.whatsappId });
   }
+  if (orConditions.length === 0) return null;
 
-  const contact =
-    orConditions.length > 0
-      ? await prisma.contact.findFirst({
-          where: { userId, OR: orConditions },
-          include: { contactAgent: { include: { agent: true } } },
-        })
-      : null;
+  return prisma.contact.findFirst({
+    where: { userId: input.userId, OR: orConditions },
+    include: { contactAgent: { include: { agent: true } } },
+  });
+}
 
-  const assigned = contact?.contactAgent?.agent;
-  if (assigned?.isActive) return assigned;
+export async function resolveAgentForMessage(input: {
+  userId: string;
+  agentId?: string | null;
+  agentTest?: boolean;
+  phone?: string | null;
+  whatsappId?: string | null;
+  contactId?: string | null;
+  conversationAgentId?: string | null;
+}): Promise<Agent> {
+  const { userId } = input;
+  await ensureDefaultAgent(userId);
 
-  return getDefaultAgentRecord(userId);
+  const explicitAgent = input.agentId ? await getAgentRecordById(userId, input.agentId) : null;
+  const contact = await findContactWithBinding({
+    userId,
+    contactId: input.contactId,
+    phone: input.phone,
+    whatsappId: input.whatsappId,
+  });
+  const contactAssignedAgent = contact?.contactAgent?.agent ?? null;
+  const conversationAgent = input.conversationAgentId
+    ? await getAgentRecordById(userId, input.conversationAgentId)
+    : null;
+  const defaultAgent = await getDefaultAgentRecord(userId);
+
+  const selected = selectAgentForMessage({
+    agentTest: input.agentTest,
+    explicitAgent,
+    contactAssignedAgent,
+    conversationAgent,
+    defaultAgent,
+  });
+
+  if (selected.id === defaultAgent.id) return defaultAgent;
+  if (selected.id === explicitAgent?.id && explicitAgent) return explicitAgent;
+  if (selected.id === contactAssignedAgent?.id && contactAssignedAgent) return contactAssignedAgent;
+  if (selected.id === conversationAgent?.id && conversationAgent) return conversationAgent;
+  return defaultAgent;
 }
 
 export async function findContactByPhone(userId: string, phone: string) {
@@ -50,4 +103,16 @@ export async function findContactByPhone(userId: string, phone: string) {
     where: { userId, phone: { contains: digits.slice(-11) } },
     include: { contactAgent: { include: { agent: true } } },
   });
+}
+
+export async function getBoundAgentForContact(
+  userId: string,
+  contactId: string,
+): Promise<Agent | null> {
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, userId },
+    include: { contactAgent: { include: { agent: true } } },
+  });
+  const agent = contact?.contactAgent?.agent;
+  return agent?.isActive ? agent : null;
 }

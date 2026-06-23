@@ -16,7 +16,7 @@ type CustomerProject = {
   propostaGerada?: boolean;
 };
 
-type CustomerContextRecord = {
+export type CustomerContextRecord = {
   id: string;
   userId: string;
   phone: string | null;

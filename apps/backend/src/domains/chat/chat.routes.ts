@@ -12,6 +12,8 @@ const messageSchema = z.object({
   content: z.string().min(1),
   context: z.nativeEnum(ContextType).optional(),
   agentId: z.string().cuid().optional(),
+  forceNew: z.boolean().optional(),
+  agentTest: z.boolean().optional(),
 });
 
 chatRouter.post('/message', async (req, res, next) => {
@@ -24,11 +26,13 @@ chatRouter.post('/message', async (req, res, next) => {
       conversationId: body.conversationId,
       context: body.context ?? undefined,
       assignedAgentId: body.agentId,
+      forceNew: body.forceNew,
+      agentTest: body.agentTest,
     });
     res.json(result);
   } catch (e) {
-    if (e instanceof Error && e.message === 'Conversa n�o encontrada') {
-      res.status(404).json({ error: 'Conversa n�o encontrada' });
+    if (e instanceof Error && e.message === 'Conversa não encontrada') {
+      res.status(404).json({ error: 'Conversa não encontrada' });
       return;
     }
     next(e);

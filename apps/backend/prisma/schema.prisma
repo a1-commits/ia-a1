@@ -84,23 +84,32 @@ model User {
 }
 
 model Conversation {
-  id             String      @id @default(cuid())
-  userId         String
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title          String?
-  context        ContextType @default(GERAL)
-  pinned         Boolean     @default(false)
-  archived       Boolean     @default(false)
-  lastMessageAt  DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  messages       Message[]
-  proposals      Proposal[]
-  generatedImages GeneratedImage[]
-  imageJobs      ImageJob[]
+  id                  String      @id @default(cuid())
+  userId              String
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title               String?
+  context             ContextType @default(GERAL)
+  pinned              Boolean     @default(false)
+  archived            Boolean     @default(false)
+  lastMessageAt       DateTime?
+  contactId           String?
+  contact             Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  agentId             String?
+  agent               Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  channel             String      @default("internal")
+  lastMessagePreview  String?
+  contactIdentifier   String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  messages            Message[]
+  proposals           Proposal[]
+  generatedImages     GeneratedImage[]
+  imageJobs           ImageJob[]
 
   @@index([userId])
   @@index([userId, archived, pinned])
+  @@index([userId, contactId, channel])
+  @@index([userId, agentId, channel])
 }
 
 model Message {
@@ -318,6 +327,7 @@ model Agent {
   contactAgents  ContactAgent[]
   agentTools     AgentTool[]
   blingConnections BlingConnection[]
+  conversations  Conversation[]
 
   @@index([userId])
   @@index([userId, isDefault])
@@ -365,6 +375,7 @@ model Contact {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   contactAgent      ContactAgent?
+  conversations     Conversation[]
 
   @@unique([userId, phone])
   @@index([userId])

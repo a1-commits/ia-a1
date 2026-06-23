@@ -30,7 +30,26 @@ export type Conversation = {
   lastMessageAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  channel?: string;
+  channelLabel?: string;
+  contactId?: string | null;
+  contactName?: string | null;
+  contactIdentifier?: string | null;
+  displayTitle?: string;
+  lastMessagePreview?: string | null;
+  agentId?: string | null;
+  agentName?: string | null;
   messages?: Message[];
+};
+
+export type ConversationIdentity = {
+  displayTitle: string;
+  contactName: string | null;
+  contactIdentifier: string | null;
+  channel: string;
+  channelLabel: string;
+  agentId: string | null;
+  agentName: string;
 };
 
 export type Message = {

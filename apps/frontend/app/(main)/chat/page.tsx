@@ -6,7 +6,7 @@ import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/EmptyState';
 import { api, ApiError } from '@/lib/api';
-import type { Conversation, Message } from '@/types/models';
+import type { Conversation, ConversationIdentity, Message } from '@/types/models';
 
 const POLL_MS = 3000;
 
@@ -14,6 +14,8 @@ type ChatResponse = {
   conversationId: string;
   userMessage: Message;
   assistantMessage: Message;
+  agentName: string;
+  conversationIdentity: ConversationIdentity;
 };
 
 type AiStatus = {
@@ -26,6 +28,16 @@ type PollStatus = 'live' | 'updating' | 'error';
 
 function isNearBottom(el: HTMLElement, threshold = 80): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+}
+
+function formatSidebarMeta(c: Conversation): string {
+  const channel = c.channelLabel ?? 'Interno';
+  const agent = c.agentName?.trim() || 'MOBI';
+  const date = c.lastMessageAt ?? c.updatedAt;
+  const time = new Date(date);
+  const hh = time.getHours().toString().padStart(2, '0');
+  const mm = time.getMinutes().toString().padStart(2, '0');
+  return `${channel} · ${agent} · ${hh}:${mm}`;
 }
 
 function ConversationList({
@@ -85,13 +97,18 @@ function ConversationList({
             <button
               type="button"
               onClick={() => onSelect(c.id)}
-              className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-xs transition ${
+              className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left transition ${
                 activeId === c.id ? 'font-medium text-[var(--primary)]' : 'text-[var(--fg)]'
               }`}
             >
-              <div className="line-clamp-2">{c.title ?? 'Conversa'}</div>
-              <div className="text-[10px] text-[var(--muted)]">
-                {c.context}
+              <div className="truncate text-xs font-medium">
+                {c.displayTitle ?? c.contactName ?? c.title ?? 'Contato sem nome'}
+              </div>
+              <div className="mt-0.5 line-clamp-1 text-[11px] text-[var(--muted)]">
+                {c.lastMessagePreview ?? '—'}
+              </div>
+              <div className="mt-0.5 text-[10px] text-[var(--muted)]">
+                {formatSidebarMeta(c)}
                 {c.pinned ? ' · fixada' : ''}
                 {c.archived ? ' · arquivo' : ''}
               </div>
@@ -114,6 +131,8 @@ function ConversationList({
 export default function ChatPage(): React.ReactElement {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeIdentity, setActiveIdentity] = useState<ConversationIdentity | null>(null);
+  const [activeAgentName, setActiveAgentName] = useState('MOBI');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loadingList, setLoadingList] = useState(true);
@@ -121,6 +140,7 @@ export default function ChatPage(): React.ReactElement {
   const [sending, setSending] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [forceNewConversation, setForceNewConversation] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [pollStatus, setPollStatus] = useState<PollStatus>('live');
@@ -142,7 +162,7 @@ export default function ChatPage(): React.ReactElement {
 
   const fetchConversations = useCallback(async (): Promise<Conversation[]> => {
     const res = await api<{ items: Conversation[] }>(`/api/conversations${conversationsQuery}`);
-    return res.items;
+    return res.items.filter((c) => c.channel !== 'agent_test');
   }, [conversationsQuery]);
 
   const loadConversations = useCallback(
@@ -175,7 +195,10 @@ export default function ChatPage(): React.ReactElement {
       const current = activeIdRef.current;
       if (current && !items.some((c) => c.id === current)) {
         setActiveId(items[0]?.id ?? null);
-        if (!items[0]) setMessages([]);
+        if (!items[0]) {
+          setMessages([]);
+          setActiveIdentity(null);
+        }
       }
       setPollStatus('live');
     } catch {
@@ -183,17 +206,24 @@ export default function ChatPage(): React.ReactElement {
     }
   }, [deleteBusy, sending, fetchConversations]);
 
-  const fetchMessages = useCallback(async (id: string): Promise<Message[]> => {
-    const res = await api<{ messages: Message[] }>(`/api/conversations/${id}/messages`);
-    return res.messages;
-  }, []);
+  const fetchMessages = useCallback(
+    async (id: string): Promise<{ messages: Message[]; identity: ConversationIdentity | null }> => {
+      const res = await api<{ messages: Message[]; identity: ConversationIdentity | null }>(
+        `/api/conversations/${id}/messages`,
+      );
+      return { messages: res.messages, identity: res.identity ?? null };
+    },
+    [],
+  );
 
   const loadMessages = useCallback(
     async (id: string) => {
       setLoadingMsgs(true);
       try {
-        const items = await fetchMessages(id);
+        const { messages: items, identity } = await fetchMessages(id);
         setMessages(items);
+        setActiveIdentity(identity);
+        setActiveAgentName(identity?.agentName ?? 'MOBI');
         stickToBottomRef.current = true;
       } finally {
         setLoadingMsgs(false);
@@ -209,8 +239,12 @@ export default function ChatPage(): React.ReactElement {
       const shouldStick = stickToBottomRef.current || (container ? isNearBottom(container) : true);
       setPollStatus('updating');
       try {
-        const items = await fetchMessages(id);
+        const { messages: items, identity } = await fetchMessages(id);
         setMessages(items);
+        if (identity) {
+          setActiveIdentity(identity);
+          setActiveAgentName(identity.agentName);
+        }
         setPollStatus('live');
         if (shouldStick) {
           requestAnimationFrame(() => {
@@ -233,6 +267,8 @@ export default function ChatPage(): React.ReactElement {
       void loadMessages(activeId);
     } else {
       setMessages([]);
+      setActiveIdentity(null);
+      setActiveAgentName('MOBI');
     }
   }, [activeId, loadMessages]);
 
@@ -288,6 +324,11 @@ export default function ChatPage(): React.ReactElement {
 
   const pollTone = pollStatus === 'live' ? 'success' : pollStatus === 'error' ? 'warning' : 'neutral';
 
+  const headerTitle =
+    activeIdentity?.displayTitle ??
+    conversations.find((c) => c.id === activeId)?.displayTitle ??
+    'Nova conversa';
+
   async function handleSend(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     if (!canSend) return;
@@ -301,10 +342,14 @@ export default function ChatPage(): React.ReactElement {
           conversationId: activeId ?? undefined,
           content: input.trim(),
           context: 'GERAL',
+          forceNew: forceNewConversation,
         }),
       });
       setInput('');
+      setForceNewConversation(false);
       setActiveId(res.conversationId);
+      setActiveIdentity(res.conversationIdentity);
+      setActiveAgentName(res.agentName);
       setMessages((prev) => {
         const ids = new Set(prev.map((m) => m.id));
         const next = [...prev];
@@ -324,6 +369,9 @@ export default function ChatPage(): React.ReactElement {
   async function newChat(): Promise<void> {
     setActiveId(null);
     setMessages([]);
+    setActiveIdentity(null);
+    setActiveAgentName('MOBI');
+    setForceNewConversation(true);
     setSheetOpen(false);
     stickToBottomRef.current = true;
   }
@@ -349,7 +397,10 @@ export default function ChatPage(): React.ReactElement {
       const remaining = conversations.filter((c) => c.id !== activeId);
       setConversations(remaining);
       setActiveId(remaining[0]?.id ?? null);
-      if (remaining.length === 0) setMessages([]);
+      if (remaining.length === 0) {
+        setMessages([]);
+        setActiveIdentity(null);
+      }
       setConfirmDeleteOne(false);
       showFeedback('Conversa excluída do painel.');
     } catch (err) {
@@ -366,6 +417,7 @@ export default function ChatPage(): React.ReactElement {
       setConversations([]);
       setActiveId(null);
       setMessages([]);
+      setActiveIdentity(null);
       setConfirmDeleteAll(false);
       showFeedback('Todas as conversas foram removidas do painel.');
     } catch (err) {
@@ -377,6 +429,7 @@ export default function ChatPage(): React.ReactElement {
 
   function selectConversation(id: string): void {
     setActiveId(id);
+    setForceNewConversation(false);
     setSheetOpen(false);
     stickToBottomRef.current = true;
   }
@@ -388,7 +441,7 @@ export default function ChatPage(): React.ReactElement {
           <div>
             <div className="eyebrow">Central inteligente</div>
             <h1 className="text-2xl font-bold tracking-tight text-[var(--moble-black)]">Chat</h1>
-            <p className="text-sm text-[var(--moble-muted)]">Conversas com a recepcionista Mobi.</p>
+            <p className="text-sm text-[var(--moble-muted)]">Conversas por contato, canal e agente.</p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {aiStatus && (
                 <Badge tone={aiStatus.mode === 'real' ? 'success' : 'warning'}>{aiStatus.label}</Badge>
@@ -487,6 +540,28 @@ export default function ChatPage(): React.ReactElement {
         </aside>
 
         <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-[var(--moble-border)] bg-white shadow-sm">
+          {(activeId || activeIdentity) && (
+            <div className="border-b border-[var(--moble-border)] px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[var(--fg)]">{headerTitle}</div>
+                  <div className="mt-0.5 text-xs text-[var(--muted)]">
+                    {activeIdentity?.channelLabel ?? 'Interno'} · Agente responsável:{' '}
+                    {activeIdentity?.agentName ?? activeAgentName}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled
+                  title="Em breve"
+                  className="shrink-0 px-2 py-1 text-[10px] text-[var(--muted)]"
+                >
+                  Trocar agente
+                </Button>
+              </div>
+            </div>
+          )}
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
@@ -496,7 +571,7 @@ export default function ChatPage(): React.ReactElement {
             {!loadingMsgs && messages.length === 0 && (
               <EmptyState
                 title="Nenhuma mensagem ainda"
-                description="Envie uma mensagem para iniciar a conversa com a Mobi."
+                description="Envie uma mensagem para iniciar a conversa com o agente."
               />
             )}
             {messages.map((m) => (
@@ -513,7 +588,7 @@ export default function ChatPage(): React.ReactElement {
                       m.role === 'USER' ? 'text-white/80' : 'text-[var(--muted)]'
                     }`}
                   >
-                    {m.role === 'USER' ? 'Cliente / Você' : 'MOBI'}
+                    {m.role === 'USER' ? 'Cliente / Você' : activeAgentName}
                   </div>
                   <div className="whitespace-pre-wrap break-words">{m.content}</div>
                 </div>

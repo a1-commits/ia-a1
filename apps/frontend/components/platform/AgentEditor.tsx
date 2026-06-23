@@ -46,6 +46,7 @@ export function AgentEditor({
   const [testInput, setTestInput] = useState('');
   const [testReply, setTestReply] = useState<string | null>(null);
   const [testBusy, setTestBusy] = useState(false);
+  const [testConversationId, setTestConversationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -110,14 +111,31 @@ export function AgentEditor({
   async function runTest(): Promise<void> {
     const msg = testInput.trim();
     if (!msg) return;
+    if (!agent.id) {
+      setTestReply('Salve o agente antes de testar.');
+      return;
+    }
     setTestBusy(true);
     setTestReply(null);
     try {
-      const res = await api<{ assistantMessage: { content: string } }>('/api/chat/message', {
+      const res = await api<{
+        conversationId: string;
+        assistantMessage: { content: string };
+        agentName: string;
+        conversationIdentity: { displayTitle: string };
+      }>('/api/chat/message', {
         method: 'POST',
-        body: JSON.stringify({ content: msg, context: 'GERAL', agentId: agent.id || undefined }),
+        body: JSON.stringify({
+          content: msg,
+          context: 'GERAL',
+          agentId: agent.id,
+          conversationId: testConversationId ?? undefined,
+          agentTest: true,
+        }),
       });
-      setTestReply(res.assistantMessage.content);
+      setTestConversationId(res.conversationId);
+      setTestReply(`${res.conversationIdentity.displayTitle} · ${res.agentName}\n\n${res.assistantMessage.content}`);
+      setTestInput('');
     } catch (err) {
       setTestReply(err instanceof Error ? err.message : 'Falha ao testar agente.');
     } finally {
@@ -316,7 +334,8 @@ export function AgentEditor({
         {activeTab === 'teste' && (
           <PlatformCard className="space-y-4">
             <p className="text-sm text-[var(--muted)]">
-              Envie uma mensagem real para testar a IA configurada no servidor.
+              Envie mensagens reais para testar a IA deste agente. A conversa fica isolada como{' '}
+              <strong>Teste {agent.name || '…'}</strong> e não mistura com o chat geral.
             </p>
             <div className="flex gap-2">
               <input
@@ -333,7 +352,7 @@ export function AgentEditor({
               </Button>
             </div>
             {testReply && (
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--hover)] p-3 text-sm text-[var(--fg)]">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--hover)] p-3 text-sm whitespace-pre-wrap text-[var(--fg)]">
                 {testReply}
               </div>
             )}

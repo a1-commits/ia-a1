@@ -11,6 +11,7 @@ import { authMiddleware } from '../../middleware/authMiddleware';
 import { analyzeLeadConversation } from '../../ai/lead-decision-engine';
 import { createSalesHandoff, getSalesHandoffForConversation } from '../sales/handoff.service';
 import { createImageJob, getLatestImageJobForConversation, startImageJob } from './imageGeneration.service';
+import { listConversationItems, mapConversationIdentityMeta } from './conversationIdentity.service';
 
 export const conversationsRouter = Router();
 conversationsRouter.use(authMiddleware);
@@ -344,16 +345,7 @@ conversationsRouter.get('/', async (req, res, next) => {
   try {
     const userId = req.userId!;
     const includeArchived = req.query.includeArchived === 'true';
-    const items = await prisma.conversation.findMany({
-      where: {
-        userId,
-        ...(includeArchived ? {} : { archived: false }),
-      },
-      orderBy: [{ pinned: 'desc' }, { lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-      include: {
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-      },
-    });
+    const items = await listConversationItems(userId, includeArchived);
     res.json({ items });
   } catch (e) {
     next(e);
@@ -439,7 +431,21 @@ conversationsRouter.get('/:id/messages', async (req, res, next) => {
   try {
     const userId = req.userId!;
     const id = req.params.id;
-    const conv = await prisma.conversation.findFirst({ where: { id, userId } });
+    const conv = await prisma.conversation.findFirst({
+      where: { id, userId },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            whatsappId: true,
+            contactAgent: { include: { agent: { select: { id: true, name: true, isActive: true } } } },
+          },
+        },
+        agent: { select: { id: true, name: true, isActive: true } },
+      },
+    });
     if (!conv) {
       res.status(404).json({ error: 'Conversa não encontrada' });
       return;
@@ -448,7 +454,11 @@ conversationsRouter.get('/:id/messages', async (req, res, next) => {
       where: { conversationId: id },
       orderBy: { createdAt: 'asc' },
     });
-    res.json({ conversation: conv, messages });
+    res.json({
+      conversation: conv,
+      messages,
+      identity: mapConversationIdentityMeta(conv),
+    });
   } catch (e) {
     next(e);
   }
