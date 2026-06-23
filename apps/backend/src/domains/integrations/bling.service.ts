@@ -4,6 +4,11 @@ import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { decryptSecret, encryptSecret, maskSecret } from '../../lib/secretCrypto';
 import {
+  findExactBarcodeProduct,
+  logBarcodeSearch,
+  summarizeProductForBarcodeLog,
+} from './blingBarcode';
+import {
   computeStockSituation,
   type BlingMultiStoreStockResponse,
   type BlingStockStoreResult,
@@ -355,8 +360,44 @@ type BlingProduct = {
   nome?: string;
   codigo?: string;
   gtin?: string;
+  codigoBarras?: string | Record<string, unknown>;
+  ean?: string;
+  barcode?: string;
   estoque?: { saldoVirtualTotal?: number; minimo?: number; saldoFisicoTotal?: number };
 };
+
+async function findProductByBarcode(token: string, barcode: string): Promise<BlingProduct | null> {
+  const queries = [
+    `/produtos?pagina=1&limite=50&codigoBarras=${encodeURIComponent(barcode)}`,
+    `/produtos?pagina=1&limite=50&gtin=${encodeURIComponent(barcode)}`,
+    `/produtos?pagina=1&limite=50&codigo=${encodeURIComponent(barcode)}`,
+  ];
+
+  for (const path of queries) {
+    const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
+    if (!res.ok) continue;
+
+    const items = res.data.data ?? [];
+    const match = findExactBarcodeProduct(items, barcode);
+    logBarcodeSearch({
+      searchedBarcode: barcode,
+      queryPath: path.split('?')[0] ?? path,
+      candidateCount: items.length,
+      firstCandidate: items[0] ? summarizeProductForBarcodeLog(items[0]) : null,
+      matched: Boolean(match),
+    });
+    if (match) return match;
+  }
+
+  logBarcodeSearch({
+    searchedBarcode: barcode,
+    queryPath: '/produtos',
+    candidateCount: 0,
+    firstCandidate: null,
+    matched: false,
+  });
+  return null;
+}
 
 async function blingFetch<T>(
   token: string,
@@ -377,21 +418,6 @@ async function blingFetch<T>(
     return { ok: false, reason, status: res.status };
   }
   return { ok: true, data: json as T };
-}
-
-async function findProductByBarcode(token: string, barcode: string): Promise<BlingProduct | null> {
-  const queries = [
-    `/produtos?pagina=1&limite=1&codigoBarras=${encodeURIComponent(barcode)}`,
-    `/produtos?pagina=1&limite=1&gtin=${encodeURIComponent(barcode)}`,
-  ];
-
-  for (const path of queries) {
-    const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
-    if (!res.ok) continue;
-    const items = res.data.data ?? [];
-    if (items[0]) return items[0];
-  }
-  return null;
 }
 
 async function fetchStockForProduct(token: string, productId: number): Promise<{
