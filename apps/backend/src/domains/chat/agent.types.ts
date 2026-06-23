@@ -1,5 +1,6 @@
 import type { ContextType } from '@prisma/client';
 import type { LeadDecision } from '../../ai/lead-decision-engine';
+import type { RouterCategory } from './router.service';
 
 export type InterpretedKind = 'message' | 'memory' | 'task' | 'reflection';
 
@@ -27,6 +28,7 @@ export type AgentMeta = {
   confidence: number;
   autoCreated: AgentAutoCreated;
   rationale: string;
+  routerCategory?: RouterCategory;
   leadDecision?: LeadDecision;
   imageJob?: AgentImageJobMeta;
 };

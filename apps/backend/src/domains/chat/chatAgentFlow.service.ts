@@ -1,7 +1,12 @@
 import { ContextType, MessageRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { generateAssistantReply, syncAiRuntimePreference } from '../ai/aiService';
-import { buildAgentPrompt, MINIMAL_HISTORY_MESSAGES, type AgentPromptChannel } from './prompt.service';
+import { buildAgentPrompt, ROUTER_HISTORY_MESSAGES, type AgentPromptChannel } from './prompt.service';
+import {
+  classifyFromConversation,
+  detectRouterPhase,
+  type RouterCategory,
+} from './router.service';
 import type { AgentMeta, AgentInterpretation } from './agent.types';
 import {
   clampMinimalReply,
@@ -44,17 +49,21 @@ export type ProcessAgentMessageOutput = {
   agentMeta: AgentMeta;
 };
 
-function minimalAgentMeta(interpretation: AgentInterpretation): AgentMeta {
+function routerAgentMeta(input: {
+  interpretation: AgentInterpretation;
+  routerCategory: RouterCategory | null;
+}): AgentMeta {
   return {
-    contextDetected: interpretation.context,
-    kindDetected: interpretation.kind,
-    confidence: interpretation.confidence,
+    contextDetected: input.interpretation.context,
+    kindDetected: input.interpretation.kind,
+    confidence: input.interpretation.confidence,
     autoCreated: {},
-    rationale: interpretation.rationale,
+    rationale: input.interpretation.rationale,
+    routerCategory: input.routerCategory ?? undefined,
   };
 }
 
-async function finalizeMinimalAgentReply(input: {
+async function finalizeRouterAgentReply(input: {
   channel: AgentPromptChannel;
   conversationId: string;
   userMsg: ProcessAgentMessageOutput['userMessage'];
@@ -65,7 +74,7 @@ async function finalizeMinimalAgentReply(input: {
   const history = await prisma.message.findMany({
     where: { conversationId },
     orderBy: { createdAt: 'asc' },
-    take: MINIMAL_HISTORY_MESSAGES,
+    take: ROUTER_HISTORY_MESSAGES,
   });
 
   const conversationMessages = history.map((m) => {
@@ -78,17 +87,22 @@ async function finalizeMinimalAgentReply(input: {
     return { role, content: m.content };
   });
 
+  const routerCategory = classifyFromConversation(conversationMessages);
+  const routerPhase = detectRouterPhase(conversationMessages, routerCategory);
+
   const interpretation: AgentInterpretation = {
     context: ContextType.GERAL,
     kind: 'message',
     confidence: 1,
-    rationale: 'Modo recepcionista minimal (MOBI-MINIMAL-AGENT-1)',
+    rationale: `Modo router (MOBI-ROUTER-AGENT-1) fase=${routerPhase}${routerCategory ? ` categoria=${routerCategory}` : ''}`,
   };
 
   const promptMessages = buildAgentPrompt({
     conversationMessages,
     channel,
     contactDisplayName,
+    routerPhase,
+    routerCategory,
   });
 
   const replyText = clampMinimalReply(
@@ -114,7 +128,7 @@ async function finalizeMinimalAgentReply(input: {
     conversationId,
     userMessage: userMsg,
     assistantMessage: assistantMsg,
-    agentMeta: minimalAgentMeta(interpretation),
+    agentMeta: routerAgentMeta({ interpretation, routerCategory }),
   };
 }
 
@@ -193,11 +207,14 @@ export async function processAgentMessage(
             conversationId,
             userMessage: userMsg,
             assistantMessage: assistantMsg,
-            agentMeta: minimalAgentMeta({
-              context: ContextType.GERAL,
-              kind: 'message',
-              confidence: 1,
-              rationale: 'Falha ao confirmar operação ERP.',
+            agentMeta: routerAgentMeta({
+              interpretation: {
+                context: ContextType.GERAL,
+                kind: 'message',
+                confidence: 1,
+                rationale: 'Falha ao confirmar operação ERP.',
+              },
+              routerCategory: null,
             }),
           };
         }
@@ -217,11 +234,14 @@ export async function processAgentMessage(
             conversationId,
             userMessage: userMsg,
             assistantMessage: assistantMsg,
-            agentMeta: minimalAgentMeta({
-              context: ContextType.GERAL,
-              kind: 'message',
-              confidence: 1,
-              rationale: w.ok ? 'Operação Olist executada (confirmação web).' : 'Falha operação Olist.',
+            agentMeta: routerAgentMeta({
+              interpretation: {
+                context: ContextType.GERAL,
+                kind: 'message',
+                confidence: 1,
+                rationale: w.ok ? 'Operação Olist executada (confirmação web).' : 'Falha operação Olist.',
+              },
+              routerCategory: null,
             }),
           };
         }
@@ -237,11 +257,14 @@ export async function processAgentMessage(
           conversationId,
           userMessage: userMsg,
           assistantMessage: assistantMsg,
-          agentMeta: minimalAgentMeta({
-            context: ContextType.GERAL,
-            kind: 'message',
-            confidence: 1,
-            rationale: 'Rejeição de confirmação ERP no web.',
+          agentMeta: routerAgentMeta({
+            interpretation: {
+              context: ContextType.GERAL,
+              kind: 'message',
+              confidence: 1,
+              rationale: 'Rejeição de confirmação ERP no web.',
+            },
+            routerCategory: null,
           }),
         };
       }
@@ -264,11 +287,14 @@ export async function processAgentMessage(
       conversationId,
       userMessage: userMsg,
       assistantMessage: assistantMsg,
-      agentMeta: minimalAgentMeta({
-        context: ContextType.GERAL,
-        kind: 'message',
-        confidence: 1,
-        rationale: 'Instrução Olist (faltou dado).',
+      agentMeta: routerAgentMeta({
+        interpretation: {
+          context: ContextType.GERAL,
+          kind: 'message',
+          confidence: 1,
+          rationale: 'Instrução Olist (faltou dado).',
+        },
+        routerCategory: null,
       }),
     };
   }
@@ -293,11 +319,14 @@ export async function processAgentMessage(
       conversationId,
       userMessage: userMsg,
       assistantMessage: assistantMsg,
-      agentMeta: minimalAgentMeta({
-        context: ContextType.GERAL,
-        kind: 'message',
-        confidence: 1,
-        rationale: 'Pendente confirmação escrita Olist (web).',
+      agentMeta: routerAgentMeta({
+        interpretation: {
+          context: ContextType.GERAL,
+          kind: 'message',
+          confidence: 1,
+          rationale: 'Pendente confirmação escrita Olist (web).',
+        },
+        routerCategory: null,
       }),
     };
   }
@@ -321,11 +350,14 @@ export async function processAgentMessage(
         conversationId,
         userMessage: userMsg,
         assistantMessage: assistantMsg,
-        agentMeta: minimalAgentMeta({
-          context: ContextType.GERAL,
-          kind: 'message',
-          confidence: 1,
-          rationale: 'Resposta factível ERP (Olist) sem alucinação do modelo.',
+        agentMeta: routerAgentMeta({
+          interpretation: {
+            context: ContextType.GERAL,
+            kind: 'message',
+            confidence: 1,
+            rationale: 'Resposta factível ERP (Olist) sem alucinação do modelo.',
+          },
+          routerCategory: null,
         }),
       };
     }
@@ -341,11 +373,14 @@ export async function processAgentMessage(
       conversationId,
       userMessage: userMsg,
       assistantMessage: assistantMsg,
-      agentMeta: minimalAgentMeta({
-        context: ContextType.GERAL,
-        kind: 'message',
-        confidence: 1,
-        rationale: 'Falha na consulta ERP (Olist).',
+      agentMeta: routerAgentMeta({
+        interpretation: {
+          context: ContextType.GERAL,
+          kind: 'message',
+          confidence: 1,
+          rationale: 'Falha na consulta ERP (Olist).',
+        },
+        routerCategory: null,
       }),
     };
   }
@@ -353,7 +388,7 @@ export async function processAgentMessage(
   const contactDisplayName =
     input.customerName?.trim() || customerContext?.name?.trim() || null;
 
-  return finalizeMinimalAgentReply({
+  return finalizeRouterAgentReply({
     channel,
     conversationId,
     userMsg,
