@@ -83,8 +83,8 @@ blingRouter.post('/connections', async (req, res, next) => {
 
 blingRouter.get('/connect/:connectionId', async (req, res, next) => {
   try {
-    const url = await buildBlingConnectUrl(req.userId!, req.params.connectionId);
-    res.redirect(url);
+    const authorizeUrl = await buildBlingConnectUrl(req.userId!, req.params.connectionId);
+    res.json({ authorizeUrl });
   } catch (e) {
     next(e);
   }

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/Button';
 import { PageHeader } from '@/components/platform/PageHeader';
 import { PlatformCard } from '@/components/platform/PlatformCard';
-import { api, getApiBase } from '@/lib/api';
+import { api } from '@/lib/api';
 
 type BlingConnection = {
   id: string;
@@ -71,8 +71,17 @@ export default function BlingIntegrationPage(): React.ReactElement {
     }
   }
 
-  function connectBling(connectionId: string): void {
-    window.location.href = `${getApiBase()}/api/integrations/bling/connect/${connectionId}`;
+  async function connectBling(connectionId: string): Promise<void> {
+    setBusyId(connectionId);
+    try {
+      const res = await api<{ authorizeUrl: string }>(
+        `/api/integrations/bling/connect/${connectionId}`,
+      );
+      window.location.href = res.authorizeUrl;
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Falha ao iniciar OAuth Bling.');
+      setBusyId(null);
+    }
   }
 
   async function testConnection(id: string): Promise<void> {
@@ -173,7 +182,12 @@ export default function BlingIntegrationPage(): React.ReactElement {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="accent" className="text-xs" onClick={() => connectBling(c.id)}>
+                  <Button
+                    variant="accent"
+                    className="text-xs"
+                    disabled={busyId === c.id}
+                    onClick={() => void connectBling(c.id)}
+                  >
                     Conectar Bling
                   </Button>
                   <Button
