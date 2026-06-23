@@ -41,6 +41,8 @@ export type ProcessAgentMessageInput = {
   customerPhone?: string;
   customerWhatsappId?: string;
   customerName?: string;
+  /** Agente dedicado ao contato; null = genérico inicial (sem agente atribuído). */
+  assignedAgentId?: string | null;
 };
 
 export type ProcessAgentMessageOutput = {
@@ -61,14 +63,20 @@ async function finalizeSimpleAgentReply(input: {
   channel: AgentPromptChannel;
   conversationId: string;
   userMsg: ProcessAgentMessageOutput['userMessage'];
+  contactDisplayName?: string | null;
+  assignedAgentId?: string | null;
 }): Promise<ProcessAgentMessageOutput> {
-  const { userId, channel, conversationId, userMsg } = input;
+  const { userId, channel, conversationId, userMsg, contactDisplayName, assignedAgentId = null } = input;
 
   const history = await prisma.message.findMany({
     where: { conversationId },
     orderBy: { createdAt: 'asc' },
     take: 50,
   });
+
+  const userTurns = history.filter((m) => m.role === MessageRole.USER).length;
+  const assistantTurns = history.filter((m) => m.role === MessageRole.ASSISTANT).length;
+  const isFirstTurn = userTurns === 1 && assistantTurns === 0;
 
   const conversationMessages = history.map((m) => {
     const role =
@@ -84,7 +92,7 @@ async function finalizeSimpleAgentReply(input: {
     context: ContextType.GERAL,
     kind: 'message',
     confidence: 1,
-    rationale: 'Modo agente simples (RESET-CEREBRO)',
+    rationale: 'Modo agente neutro',
   };
 
   const promptMessages = buildAgentPrompt({
@@ -92,6 +100,9 @@ async function finalizeSimpleAgentReply(input: {
     related: EMPTY_RELATED_CONTEXT,
     conversationMessages,
     channel,
+    assignedAgentId,
+    contactDisplayName,
+    isFirstTurn,
   });
 
   const replyText = sanitizeAgentClientReply(
@@ -465,11 +476,15 @@ export async function processAgentMessage(
   }
 
   if (env.MOBI_SIMPLE_AGENT) {
+    const contactDisplayName =
+      input.customerName?.trim() || customerContext?.name?.trim() || null;
     return finalizeSimpleAgentReply({
       userId,
       channel,
       conversationId,
       userMsg,
+      contactDisplayName,
+      assignedAgentId: input.assignedAgentId ?? null,
     });
   }
 
@@ -532,8 +547,8 @@ export async function processAgentMessage(
         'o projeto que a gente estava vendo');
     const replyText = repairBrokenAccents(
       resumeContext.lastInteractionAt && Date.now() - resumeContext.lastInteractionAt.getTime() > 30 * 24 * 60 * 60 * 1000
-        ? `Fala! Vi que a gente tinha conversado sobre ${project.ambiente ?? 'um projeto planejado'}. Quer retomar por ele ou é outro ambiente agora?`
-        : `Fala! Vi aqui que a gente estava falando de ${projectSummary}. Quer continuar por essa ideia?`,
+        ? `Olá! Vi que a gente já tinha conversado sobre isso. Quer retomar o mesmo assunto ou falar de outra coisa?`
+        : `Olá! Vi que estávamos falando de ${projectSummary}. Quer continuar?`,
     );
     const assistantMsg = await prisma.message.create({
       data: { conversationId, role: MessageRole.ASSISTANT, content: replyText },

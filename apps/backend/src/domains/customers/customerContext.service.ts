@@ -132,7 +132,16 @@ export async function findOrCreateCustomerContext(input: {
       OR: [phone ? { phone } : undefined, whatsappId ? { whatsappId } : undefined].filter(Boolean),
     },
   });
-  if (existing) return existing;
+  if (existing) {
+    const incomingName = input.name?.trim();
+    if (incomingName && !existing.name?.trim()) {
+      return customerContextModel.update({
+        where: { id: existing.id },
+        data: { name: incomingName },
+      });
+    }
+    return existing;
+  }
 
   return customerContextModel.create({
     data: {

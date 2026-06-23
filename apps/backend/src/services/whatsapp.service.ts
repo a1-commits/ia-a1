@@ -698,6 +698,19 @@ class WhatsAppService {
     return normalizeNumber(jid.split('@')[0]);
   }
 
+  private async resolveSenderDisplayName(message: Message): Promise<string | null> {
+    try {
+      const contact = await message.getContact();
+      const fromContact =
+        contact.pushname?.trim() || contact.name?.trim() || contact.shortName?.trim();
+      if (fromContact) return fromContact;
+    } catch {
+      // Contato indisponível — tenta fallback abaixo.
+    }
+    const notify = (message as { notifyName?: string }).notifyName?.trim();
+    return notify || null;
+  }
+
   private isVoiceMessage(message: Message): boolean {
     return message.type === 'ptt' || message.type === 'audio';
   }
@@ -1138,6 +1151,8 @@ class WhatsAppService {
         return;
       }
 
+      const customerName = !isAdmin ? await this.resolveSenderDisplayName(message) : undefined;
+
       const flow = await processAgentMessage({
         userId,
         content: body,
@@ -1146,6 +1161,8 @@ class WhatsAppService {
         conversationTitle: isAdmin ? 'WhatsApp · operador' : undefined,
         customerPhone: !isAdmin ? senderNumber ?? undefined : undefined,
         customerWhatsappId: !isAdmin ? message.from : undefined,
+        customerName: customerName ?? undefined,
+        assignedAgentId: null,
       });
       this.conversationByJid.set(message.from, flow.conversationId);
 

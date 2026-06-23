@@ -1,27 +1,33 @@
 import type { AiProvider, ChatMessage } from './aiProvider.types';
+import {
+  AGENT_NEUTRAL_MARKER,
+  readContactFirstNameFromPrompt,
+} from '../chat/prompt.service';
 
 function lastUserMessage(messages: ChatMessage[]): string {
   return messages.filter((m) => m.role === 'user').pop()?.content ?? '';
 }
 
-function isSimpleMobiPrompt(messages: ChatMessage[]): boolean {
+function isNeutralAgentPrompt(messages: ChatMessage[]): boolean {
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
-  return system.includes('Mobi, assistente virtual da Möble');
+  return system.includes(AGENT_NEUTRAL_MARKER);
 }
 
-function simpleMobiOfflineReply(last: string): string {
-  if (/orçamento|orcamento|cozinha|arm[aá]rio|projeto|m[oó]vel|marcenaria/i.test(last)) {
-    return 'Olá! Sou a Mobi, da Möble Marcenaria. Vou anotar os detalhes para nossa equipe avaliar o orçamento. Para começar, qual é o seu nome?';
+function neutralOfflineReply(systemContent: string): string {
+  const firstName = readContactFirstNameFromPrompt(systemContent);
+  if (firstName) {
+    return `Olá, ${firstName}! Como posso ajudar?`;
   }
-  return 'Olá! Sou a Mobi, da Möble Marcenaria. Como posso te ajudar hoje?';
+  return 'Olá! Como posso ajudar?';
 }
 
 export function createMockAiProvider(): AiProvider {
   return {
     async complete(messages: ChatMessage[]): Promise<string> {
       const last = lastUserMessage(messages);
-      if (isSimpleMobiPrompt(messages)) {
-        return simpleMobiOfflineReply(last);
+      const system = messages.find((m) => m.role === 'system')?.content ?? '';
+      if (isNeutralAgentPrompt(messages)) {
+        return neutralOfflineReply(system);
       }
       return (
         `Recebi sua mensagem: "${last.slice(0, 500)}${last.length > 500 ? '…' : ''}"\n\n` +
