@@ -77,6 +77,9 @@ model User {
   proposals    Proposal[]
   generatedImages GeneratedImage[]
   customerContexts CustomerContext[]
+  agents           Agent[]
+  contacts         Contact[]
+  toolConnections  ToolConnection[]
 }
 
 model Conversation {
@@ -252,6 +255,14 @@ enum IntegrationProvider {
   WHATSAPP
 }
 
+enum ToolType {
+  BLING
+  GMAIL
+  GOOGLE_CALENDAR
+  WEBHOOK
+  CUSTOM_API
+}
+
 model RefreshToken {
   id        String    @id @default(cuid())
   userId    String
@@ -278,4 +289,85 @@ model IntegrationLink {
   updatedAt   DateTime            @updatedAt
 
   @@unique([userId, provider])
+}
+
+model Agent {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  description    String         @default("")
+  objective      String         @default("")
+  instructions   String         @default("")
+  rules          String         @default("")
+  forbiddenRules String         @default("")
+  examples       String         @default("")
+  model          String         @default("auto")
+  isActive       Boolean        @default(true)
+  isDefault      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  contactAgents  ContactAgent[]
+  agentTools     AgentTool[]
+
+  @@index([userId])
+  @@index([userId, isDefault])
+}
+
+model Contact {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  phone             String
+  whatsappId        String?
+  lastMessage       String        @default("—")
+  lastInteractionAt DateTime?
+  status            String        @default("ativo")
+  source            String        @default("manual")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  contactAgent      ContactAgent?
+
+  @@unique([userId, phone])
+  @@index([userId])
+}
+
+model ContactAgent {
+  id         String   @id @default(cuid())
+  contactId  String   @unique
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  agentId    String
+  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([agentId])
+}
+
+model ToolConnection {
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  type       ToolType
+  isEnabled  Boolean     @default(false)
+  config     Json        @default("{}")
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  agentTools AgentTool[]
+
+  @@unique([userId, type])
+  @@index([userId])
+}
+
+model AgentTool {
+  agentId   String
+  agent     Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  toolId    String
+  tool      ToolConnection @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@id([agentId, toolId])
 }

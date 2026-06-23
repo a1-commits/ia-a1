@@ -7,7 +7,7 @@ import { Button } from '@/components/Button';
 import { FormField } from '@/components/platform/FormField';
 import { PageHeader } from '@/components/platform/PageHeader';
 import { PlatformCard } from '@/components/platform/PlatformCard';
-import { saveAgent } from '@/lib/agents-store';
+import { saveAgent } from '@/lib/agents-api';
 import { api } from '@/lib/api';
 import { fetchPlatformTools } from '@/lib/integrations-hub';
 import { TOOL_CATALOG, type AgentTab, type PlatformAgent, type PlatformTool } from '@/types/platform';
@@ -38,7 +38,7 @@ export function AgentEditor({
   const [testInput, setTestInput] = useState('');
   const [testReply, setTestReply] = useState<string | null>(null);
   const [testBusy, setTestBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     void fetchPlatformTools().then(setTools);
@@ -64,20 +64,30 @@ export function AgentEditor({
     router.replace(`${pathname}?${params.toString()}`);
   }
 
-  function persist(): PlatformAgent | null {
+  const [error, setError] = useState<string | null>(null);
+
+  async function persist(): Promise<PlatformAgent | null> {
     setError(null);
     if (!agent.name.trim()) {
       setError('Informe o nome do agente.');
       return null;
     }
-    const savedAgent = saveAgent(agent);
-    setAgent(savedAgent);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2500);
-    if (isNew) {
-      router.replace(`/agentes/${savedAgent.id}`);
+    setSaving(true);
+    try {
+      const savedAgent = await saveAgent(agent);
+      setAgent(savedAgent);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2500);
+      if (isNew) {
+        router.replace(`/agentes/${savedAgent.id}`);
+      }
+      return savedAgent;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar agente.');
+      return null;
+    } finally {
+      setSaving(false);
     }
-    return savedAgent;
   }
 
   function toggleTool(toolId: string): void {
@@ -97,7 +107,7 @@ export function AgentEditor({
     try {
       const res = await api<{ assistantMessage: { content: string } }>('/api/chat/message', {
         method: 'POST',
-        body: JSON.stringify({ content: msg, context: 'GERAL' }),
+        body: JSON.stringify({ content: msg, context: 'GERAL', agentId: agent.id || undefined }),
       });
       setTestReply(res.assistantMessage.content);
     } catch (err) {
@@ -177,8 +187,8 @@ export function AgentEditor({
               />
               <span className="text-sm text-[var(--fg)]">Agente ativo</span>
             </label>
-            <Button variant="accent" onClick={() => persist()}>
-              Salvar perfil
+            <Button variant="accent" onClick={() => void persist()} disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar perfil'}
             </Button>
           </PlatformCard>
         )}
@@ -208,8 +218,8 @@ export function AgentEditor({
               onChange={(v) => setAgent({ ...agent, exampleAnswers: v })}
               rows={4}
             />
-            <Button variant="accent" onClick={() => persist()}>
-              Salvar treinamento
+            <Button variant="accent" onClick={() => void persist()} disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar treinamento'}
             </Button>
           </PlatformCard>
         )}
@@ -243,8 +253,8 @@ export function AgentEditor({
                 </label>
               </PlatformCard>
             ))}
-            <Button variant="accent" onClick={() => persist()}>
-              Salvar ferramentas
+            <Button variant="accent" onClick={() => void persist()} disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar ferramentas'}
             </Button>
           </div>
         )}

@@ -11,6 +11,7 @@ const messageSchema = z.object({
   conversationId: z.string().cuid().optional(),
   content: z.string().min(1),
   context: z.nativeEnum(ContextType).optional(),
+  agentId: z.string().cuid().optional(),
 });
 
 chatRouter.post('/message', async (req, res, next) => {
@@ -22,6 +23,7 @@ chatRouter.post('/message', async (req, res, next) => {
       content: body.content,
       conversationId: body.conversationId,
       context: body.context ?? undefined,
+      assignedAgentId: body.agentId,
     });
     res.json(result);
   } catch (e) {

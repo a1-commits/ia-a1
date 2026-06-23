@@ -24,6 +24,8 @@ import { whatsappWebhookRouter } from './domains/webhooks/whatsapp.routes';
 import { whatsappRouter } from './domains/whatsapp/whatsapp.routes';
 import { salesRouter } from './domains/sales/sales.routes';
 import { operatorRouter } from './domains/operator/operator.routes';
+import { agentsRouter } from './domains/agents/agents.routes';
+import { contactsRouter } from './domains/contacts/contacts.routes';
 import { adminUsersRouter } from './domains/admin/adminUsers.routes';
 import { isOpenAiConfigured } from './config/env';
 import { brandRouter } from './domains/brand/brand.routes';
@@ -92,6 +94,8 @@ app.use('/api/whatsapp', whatsappRouter);
 app.use('/api/sales', salesRouter);
 app.use('/api/brand', brandRouter);
 app.use('/api/operator', operatorRouter);
+app.use('/api/agents', agentsRouter);
+app.use('/api/contacts', contactsRouter);
 app.use('/api/admin', adminUsersRouter);
 
 app.use(errorHandler);

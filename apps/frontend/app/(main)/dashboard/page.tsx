@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PageHeader } from '@/components/platform/PageHeader';
 import { PlatformMetricCard } from '@/components/platform/PlatformMetricCard';
-import { countActiveAgents, countAgents } from '@/lib/agents-store';
+import { countActiveAgents, countAgents } from '@/lib/agents-api';
 import { api } from '@/lib/api';
-import { countContactsWithAgent } from '@/lib/contacts-store';
+import { countContactsWithAgent } from '@/lib/contacts-api';
 import { countConnectedTools } from '@/lib/integrations-hub';
 
 type HubOverview = {
@@ -45,9 +45,9 @@ export default function DashboardPage(): React.ReactElement {
     } catch {
       setData(null);
     }
-    setAgentCount(countAgents());
-    setActiveAgentCount(countActiveAgents());
-    setContactsWithAgent(countContactsWithAgent());
+    setAgentCount(await countAgents());
+    setActiveAgentCount(await countActiveAgents());
+    setContactsWithAgent(await countContactsWithAgent());
     try {
       setConnectedTools(await countConnectedTools());
     } catch {

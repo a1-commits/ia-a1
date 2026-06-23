@@ -5,16 +5,15 @@ import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/platform/PageHeader';
 import { PlatformCard } from '@/components/platform/PlatformCard';
-import { api } from '@/lib/api';
+import { listActiveAgents } from '@/lib/agents-api';
 import {
+  assignContactAgent,
   createContact,
   deleteContact,
-  listStoredContacts,
-  mergeWhatsAppContacts,
-  updateContactAgent,
-  type StoredContact,
-} from '@/lib/contacts-store';
-import { agentLabel, listActiveAgents } from '@/lib/agents-store';
+  listContacts,
+  type PlatformContact,
+} from '@/lib/contacts-api';
+import type { PlatformAgent } from '@/types/platform';
 
 const STATUS_LABEL = {
   ativo: 'ativo',
@@ -23,7 +22,8 @@ const STATUS_LABEL = {
 } as const;
 
 export default function ContatosPage(): React.ReactElement {
-  const [contacts, setContacts] = useState<StoredContact[]>([]);
+  const [contacts, setContacts] = useState<PlatformContact[]>([]);
+  const [agents, setAgents] = useState<PlatformAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,17 +36,11 @@ export default function ContatosPage(): React.ReactElement {
     setLoading(true);
     setError(null);
     try {
-      const res = await api<{
-        items: Array<{
-          number: string;
-          paused: boolean;
-          lastInboundAt: string;
-          lastInboundPreview: string;
-        }>;
-      }>('/api/whatsapp/contacts');
-      setContacts(mergeWhatsAppContacts(res.items));
-    } catch {
-      setContacts(listStoredContacts());
+      const [contactItems, agentItems] = await Promise.all([listContacts(), listActiveAgents()]);
+      setContacts(contactItems);
+      setAgents(agentItems);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao carregar contatos.');
     } finally {
       setLoading(false);
     }
@@ -61,11 +55,11 @@ export default function ContatosPage(): React.ReactElement {
     window.setTimeout(() => setFeedback(null), 2500);
   }
 
-  function handleCreate(e: React.FormEvent): void {
+  async function handleCreate(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setError(null);
     try {
-      createContact({
+      await createContact({
         name,
         phone,
         agentId: newAgentId || null,
@@ -74,26 +68,31 @@ export default function ContatosPage(): React.ReactElement {
       setPhone('');
       setNewAgentId('');
       setShowForm(false);
-      setContacts(listStoredContacts());
+      await load();
       showFeedback('Contato criado.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao criar contato.');
     }
   }
 
-  function assignAgent(contactId: string, agentId: string | null): void {
-    updateContactAgent(contactId, agentId);
-    setContacts(listStoredContacts());
+  async function handleAssign(contactId: string, agentId: string | null): Promise<void> {
+    await assignContactAgent(contactId, agentId);
+    await load();
     const contact = contacts.find((c) => c.id === contactId);
-    showFeedback(
-      `Contato ${contact?.name ?? ''} → ${agentId ? agentLabel(agentId) : 'agente padrão'}.`,
-    );
+    const label = agentId ? agents.find((a) => a.id === agentId)?.name ?? 'agente' : 'agente padrão';
+    showFeedback(`Contato ${contact?.name ?? ''} → ${label}.`);
   }
 
-  function removeContact(contactId: string): void {
-    deleteContact(contactId);
-    setContacts(listStoredContacts());
+  async function handleRemove(contactId: string): Promise<void> {
+    await deleteContact(contactId);
+    await load();
     showFeedback('Contato removido.');
+  }
+
+  function agentDisplay(contact: PlatformContact): string {
+    if (contact.agentId && contact.agentName) return contact.agentName;
+    if (contact.agentId) return agents.find((a) => a.id === contact.agentId)?.name ?? 'Agente';
+    return 'Usa agente padrão';
   }
 
   return (
@@ -119,7 +118,7 @@ export default function ContatosPage(): React.ReactElement {
         {showForm && (
           <PlatformCard className="mb-6">
             <h2 className="mb-4 text-sm font-semibold text-[var(--fg)]">Cadastrar contato</h2>
-            <form onSubmit={handleCreate} className="grid gap-4 md:grid-cols-2">
+            <form onSubmit={(e) => void handleCreate(e)} className="grid gap-4 md:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Nome
@@ -153,7 +152,7 @@ export default function ContatosPage(): React.ReactElement {
                   className="premium-input max-w-md"
                 >
                   <option value="">Usa agente padrão</option>
-                  {listActiveAgents().map((agent) => (
+                  {agents.map((agent) => (
                     <option key={agent.id} value={agent.id}>
                       {agent.name}
                     </option>
@@ -171,6 +170,7 @@ export default function ContatosPage(): React.ReactElement {
         )}
 
         {loading && <p className="text-sm text-[var(--muted)]">Carregando contatos…</p>}
+        {error && !showForm && <p className="text-sm text-[var(--moble-danger)]">{error}</p>}
 
         {!loading && contacts.length === 0 && (
           <EmptyState
@@ -186,8 +186,7 @@ export default function ContatosPage(): React.ReactElement {
                 <tr className="border-b border-[var(--border)] text-xs uppercase tracking-wide text-[var(--muted)]">
                   <th className="px-4 py-3 font-medium">Nome</th>
                   <th className="px-4 py-3 font-medium">Telefone</th>
-                  <th className="px-4 py-3 font-medium">Agente atribuído</th>
-                  <th className="px-4 py-3 font-medium">Última mensagem</th>
+                  <th className="px-4 py-3 font-medium">Agente</th>
                   <th className="px-4 py-3 font-medium">Última interação</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Ações</th>
@@ -200,11 +199,8 @@ export default function ContatosPage(): React.ReactElement {
                     <td className="px-4 py-3 text-[var(--muted)]">{contact.phone}</td>
                     <td className="px-4 py-3">
                       <span className={contact.agentId ? 'text-[var(--fg)]' : 'italic text-[var(--muted)]'}>
-                        {agentLabel(contact.agentId)}
+                        {agentDisplay(contact)}
                       </span>
-                    </td>
-                    <td className="max-w-[200px] truncate px-4 py-3 text-[var(--muted)]">
-                      {contact.lastMessage}
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {new Date(contact.lastInteraction).toLocaleString('pt-BR')}
@@ -219,31 +215,31 @@ export default function ContatosPage(): React.ReactElement {
                         <select
                           value={contact.agentId ?? ''}
                           onChange={(e) =>
-                            assignAgent(contact.id, e.target.value ? e.target.value : null)
+                            void handleAssign(contact.id, e.target.value ? e.target.value : null)
                           }
                           className="premium-input max-w-[160px] py-1.5 text-xs"
                         >
                           <option value="">Usa agente padrão</option>
-                          {listActiveAgents().map((agent) => (
+                          {agents.map((agent) => (
                             <option key={agent.id} value={agent.id}>
                               {agent.name}
                             </option>
                           ))}
                         </select>
-                      {contact.agentId && (
-                        <Button
-                          variant="ghost"
-                          className="px-2 py-1 text-[10px]"
-                          onClick={() => assignAgent(contact.id, null)}
-                        >
-                          Remover agente
-                        </Button>
-                      )}
+                        {contact.agentId && (
+                          <Button
+                            variant="ghost"
+                            className="px-2 py-1 text-[10px]"
+                            onClick={() => void handleAssign(contact.id, null)}
+                          >
+                            Remover agente
+                          </Button>
+                        )}
                         {contact.source === 'manual' && (
                           <Button
                             variant="ghost"
                             className="px-2 py-1 text-[10px] text-[var(--moble-danger)]"
-                            onClick={() => removeContact(contact.id)}
+                            onClick={() => void handleRemove(contact.id)}
                           >
                             Excluir
                           </Button>

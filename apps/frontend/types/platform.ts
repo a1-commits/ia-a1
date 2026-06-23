@@ -12,6 +12,7 @@ export type PlatformAgent = {
   exampleAnswers: string;
   model: string;
   active: boolean;
+  isDefault: boolean;
   contactCount: number;
   toolIds: string[];
   updatedAt: string;

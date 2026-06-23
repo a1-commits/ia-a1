@@ -1,7 +1,10 @@
 import { ContextType, MessageRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { generateAssistantReply, syncAiRuntimePreference } from '../ai/aiService';
-import { buildAgentPrompt, ROUTER_HISTORY_MESSAGES, type AgentPromptChannel } from './prompt.service';
+import { buildDynamicAgentPrompt } from '../agents/agentPrompt.service';
+import { resolveAgentForMessage } from '../agents/agentResolver.service';
+import { touchContactInteraction } from '../contacts/contact.service';
+import { ROUTER_HISTORY_MESSAGES, type AgentPromptChannel } from './prompt.service';
 import {
   classifyFromConversation,
   detectRouterPhase,
@@ -68,8 +71,9 @@ async function finalizeRouterAgentReply(input: {
   conversationId: string;
   userMsg: ProcessAgentMessageOutput['userMessage'];
   contactDisplayName?: string | null;
+  agent: Awaited<ReturnType<typeof resolveAgentForMessage>>;
 }): Promise<ProcessAgentMessageOutput> {
-  const { channel, conversationId, userMsg, contactDisplayName } = input;
+  const { channel, conversationId, userMsg, contactDisplayName, agent } = input;
 
   const history = await prisma.message.findMany({
     where: { conversationId },
@@ -94,15 +98,14 @@ async function finalizeRouterAgentReply(input: {
     context: ContextType.GERAL,
     kind: 'message',
     confidence: 1,
-    rationale: `Modo router (MOBI-ROUTER-AGENT-1) fase=${routerPhase}${routerCategory ? ` categoria=${routerCategory}` : ''}`,
+    rationale: `Agente=${agent.name} fase=${routerPhase}${routerCategory ? ` categoria=${routerCategory}` : ''}`,
   };
 
-  const promptMessages = buildAgentPrompt({
+  const promptMessages = buildDynamicAgentPrompt({
+    agent,
     conversationMessages,
     channel,
     contactDisplayName,
-    routerPhase,
-    routerCategory,
   });
 
   const replyText = clampMinimalReply(
@@ -388,10 +391,28 @@ export async function processAgentMessage(
   const contactDisplayName =
     input.customerName?.trim() || customerContext?.name?.trim() || null;
 
+  const resolvedAgent = await resolveAgentForMessage({
+    userId,
+    agentId: input.assignedAgentId,
+    phone: input.customerPhone,
+    whatsappId: input.customerWhatsappId,
+  });
+
+  if (input.customerPhone || input.customerWhatsappId) {
+    await touchContactInteraction({
+      userId,
+      phone: input.customerPhone,
+      whatsappId: input.customerWhatsappId,
+      name: contactDisplayName,
+      lastMessage: input.content.slice(0, 200),
+    });
+  }
+
   return finalizeRouterAgentReply({
     channel,
     conversationId,
     userMsg,
     contactDisplayName,
+    agent: resolvedAgent,
   });
 }
