@@ -4,7 +4,10 @@ import { selectAgentForMessage } from '../src/domains/agents/agentResolver.servi
 import {
   resolveResponsibleAgent,
   resolveConversationDisplayTitle,
+  isConversationIdentitySchemaError,
+  mapConversationToListItem,
 } from '../src/domains/chat/conversationIdentity.service';
+import { ContextType } from '@prisma/client';
 
 const MOBI = { id: 'mobi', name: 'MOBI', isActive: true };
 const PERA = { id: 'pera', name: 'PERA', isActive: true };
@@ -138,5 +141,47 @@ describe('regras de agrupamento com agente vinculado', () => {
     assert.equal(title1, 'Maria');
     assert.equal(title2, 'Maria');
     assert.equal(title1, title2);
+  });
+});
+
+describe('conversation list polling resilience', () => {
+  it('detecta erro Prisma de coluna ausente (migration pendente)', () => {
+    assert.equal(
+      isConversationIdentitySchemaError({ code: 'P2022', message: 'Column `Conversation.contactId` does not exist' }),
+      true,
+    );
+    assert.equal(
+      isConversationIdentitySchemaError(new Error('The column `channel` does not exist in the current database.')),
+      true,
+    );
+    assert.equal(isConversationIdentitySchemaError(new Error('Unauthorized')), false);
+  });
+
+  it('fallback legacy mantém conversas visíveis com título salvo', () => {
+    const item = mapConversationToListItem(
+      {
+        id: 'legacy-1',
+        userId: 'u1',
+        title: 'João Silva',
+        context: ContextType.GERAL,
+        pinned: false,
+        archived: false,
+        lastMessageAt: new Date('2026-06-22T16:42:00'),
+        createdAt: new Date('2026-06-22T10:00:00'),
+        updatedAt: new Date('2026-06-22T16:42:00'),
+        contactId: null,
+        agentId: null,
+        channel: 'internal',
+        lastMessagePreview: null,
+        contactIdentifier: null,
+        contact: null,
+        agent: null,
+      },
+      'Oi, tudo bem?',
+    );
+
+    assert.equal(item.displayTitle, 'João Silva');
+    assert.equal(item.channel, 'internal');
+    assert.equal(item.lastMessagePreview, '"Oi, tudo bem?"');
   });
 });

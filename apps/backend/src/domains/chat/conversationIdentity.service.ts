@@ -1,4 +1,4 @@
-import { ContextType, type Agent, type Contact, type Conversation } from '@prisma/client';
+import { ContextType, Prisma, type Agent, type Contact, type Conversation } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import type { AgentPromptChannel } from './prompt.service';
 
@@ -468,19 +468,80 @@ export async function syncConversationAfterTurn(input: {
   return mapConversationIdentityMeta(updated, input.agent);
 }
 
-export async function loadConversationIdentity(
-  userId: string,
-  conversationId: string,
-): Promise<ConversationIdentityMeta | null> {
-  const conv = await prisma.conversation.findFirst({
-    where: { id: conversationId, userId },
-    include: conversationInclude,
-  });
-  if (!conv) return null;
-  return mapConversationIdentityMeta(conv);
+const contactSelect = {
+  id: true,
+  name: true,
+  phone: true,
+  whatsappId: true,
+  contactAgent: { include: { agent: { select: { id: true, name: true, isActive: true } } } },
+} as const;
+
+const agentSelect = {
+  id: true,
+  name: true,
+  isActive: true,
+} as const;
+
+type ContactWithBinding = NonNullable<ConversationWithRelations['contact']>;
+type AgentSummary = NonNullable<ConversationWithRelations['agent']>;
+
+export function isConversationIdentitySchemaError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = 'code' in error ? String((error as { code: unknown }).code) : '';
+  if (code === 'P2022') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /does not exist in the current database/i.test(message);
 }
 
-export async function listConversationItems(userId: string, includeArchived: boolean): Promise<ConversationListItem[]> {
+async function loadContactMap(
+  userId: string,
+  contactIds: string[],
+): Promise<Map<string, ContactWithBinding>> {
+  if (contactIds.length === 0) return new Map();
+  const contacts = await prisma.contact.findMany({
+    where: { userId, id: { in: contactIds } },
+    select: contactSelect,
+  });
+  return new Map(contacts.map((contact) => [contact.id, contact]));
+}
+
+async function loadAgentMap(userId: string, agentIds: string[]): Promise<Map<string, AgentSummary>> {
+  if (agentIds.length === 0) return new Map();
+  const agents = await prisma.agent.findMany({
+    where: { userId, id: { in: agentIds } },
+    select: agentSelect,
+  });
+  return new Map(agents.map((agent) => [agent.id, agent]));
+}
+
+function hydrateConversation(
+  conv: Conversation,
+  contactMap: Map<string, ContactWithBinding>,
+  agentMap: Map<string, AgentSummary>,
+): ConversationWithRelations {
+  return {
+    ...conv,
+    contact: conv.contactId ? contactMap.get(conv.contactId) ?? null : null,
+    agent: conv.agentId ? agentMap.get(conv.agentId) ?? null : null,
+  };
+}
+
+function latestMessagePreviewByConversation(
+  messages: Array<{ conversationId: string; content: string }>,
+): Map<string, string> {
+  const previewByConversation = new Map<string, string>();
+  for (const message of messages) {
+    if (!previewByConversation.has(message.conversationId)) {
+      previewByConversation.set(message.conversationId, message.content);
+    }
+  }
+  return previewByConversation;
+}
+
+async function listConversationItemsWithIdentity(
+  userId: string,
+  includeArchived: boolean,
+): Promise<ConversationListItem[]> {
   const items = await prisma.conversation.findMany({
     where: {
       userId,
@@ -488,10 +549,149 @@ export async function listConversationItems(userId: string, includeArchived: boo
     },
     orderBy: [{ pinned: 'desc' }, { lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
     include: {
-      ...conversationInclude,
       messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } },
     },
   });
 
-  return items.map((item) => mapConversationToListItem(item, item.messages[0]?.content));
+  const contactIds = [...new Set(items.map((item) => item.contactId).filter(Boolean))] as string[];
+  const agentIds = [...new Set(items.map((item) => item.agentId).filter(Boolean))] as string[];
+  const [contactMap, agentMap] = await Promise.all([
+    loadContactMap(userId, contactIds),
+    loadAgentMap(userId, agentIds),
+  ]);
+
+  return items.map((item) =>
+    mapConversationToListItem(
+      hydrateConversation(item, contactMap, agentMap),
+      item.messages[0]?.content,
+    ),
+  );
+}
+
+type LegacyConversationRow = {
+  id: string;
+  userId: string;
+  title: string | null;
+  context: ContextType;
+  pinned: boolean;
+  archived: boolean;
+  lastMessageAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+async function listConversationItemsLegacy(
+  userId: string,
+  includeArchived: boolean,
+): Promise<ConversationListItem[]> {
+  const rows = await prisma.$queryRaw<LegacyConversationRow[]>(Prisma.sql`
+    SELECT id, "userId", title, context, pinned, archived, "lastMessageAt", "createdAt", "updatedAt"
+    FROM "Conversation"
+    WHERE "userId" = ${userId}
+    ${includeArchived ? Prisma.empty : Prisma.sql`AND archived = false`}
+    ORDER BY pinned DESC, "lastMessageAt" DESC NULLS LAST, "updatedAt" DESC
+  `);
+
+  const conversationIds = rows.map((row) => row.id);
+  const messages =
+    conversationIds.length > 0
+      ? await prisma.message.findMany({
+          where: { conversationId: { in: conversationIds } },
+          orderBy: { createdAt: 'desc' },
+          select: { conversationId: true, content: true },
+        })
+      : [];
+  const previewByConversation = latestMessagePreviewByConversation(messages);
+
+  return rows.map((row) =>
+    mapConversationToListItem(
+      {
+        ...row,
+        contactId: null,
+        agentId: null,
+        channel: 'internal',
+        lastMessagePreview: null,
+        contactIdentifier: null,
+        contact: null,
+        agent: null,
+      },
+      previewByConversation.get(row.id),
+    ),
+  );
+}
+
+async function loadLegacyConversationRow(
+  userId: string,
+  conversationId: string,
+): Promise<LegacyConversationRow | null> {
+  const rows = await prisma.$queryRaw<LegacyConversationRow[]>(Prisma.sql`
+    SELECT id, "userId", title, context, pinned, archived, "lastMessageAt", "createdAt", "updatedAt"
+    FROM "Conversation"
+    WHERE id = ${conversationId} AND "userId" = ${userId}
+    LIMIT 1
+  `);
+  return rows[0] ?? null;
+}
+
+export async function getConversationForPolling(
+  userId: string,
+  conversationId: string,
+): Promise<{ conversation: ConversationWithRelations; identity: ConversationIdentityMeta } | null> {
+  try {
+    const conv = await prisma.conversation.findFirst({
+      where: { id: conversationId, userId },
+    });
+    if (!conv) return null;
+
+    const contactIds = conv.contactId ? [conv.contactId] : [];
+    const agentIds = conv.agentId ? [conv.agentId] : [];
+    const [contactMap, agentMap] = await Promise.all([
+      loadContactMap(userId, contactIds),
+      loadAgentMap(userId, agentIds),
+    ]);
+
+    const hydrated = hydrateConversation(conv, contactMap, agentMap);
+    return {
+      conversation: hydrated,
+      identity: mapConversationIdentityMeta(hydrated),
+    };
+  } catch (error) {
+    if (!isConversationIdentitySchemaError(error)) throw error;
+
+    const row = await loadLegacyConversationRow(userId, conversationId);
+    if (!row) return null;
+
+    const hydrated: ConversationWithRelations = {
+      ...row,
+      contactId: null,
+      agentId: null,
+      channel: 'internal',
+      lastMessagePreview: null,
+      contactIdentifier: null,
+      contact: null,
+      agent: null,
+    };
+    return {
+      conversation: hydrated,
+      identity: mapConversationIdentityMeta(hydrated),
+    };
+  }
+}
+
+export async function loadConversationIdentity(
+  userId: string,
+  conversationId: string,
+): Promise<ConversationIdentityMeta | null> {
+  const loaded = await getConversationForPolling(userId, conversationId);
+  return loaded?.identity ?? null;
+}
+
+export async function listConversationItems(userId: string, includeArchived: boolean): Promise<ConversationListItem[]> {
+  try {
+    return await listConversationItemsWithIdentity(userId, includeArchived);
+  } catch (error) {
+    if (!isConversationIdentitySchemaError(error)) throw error;
+    console.warn('[conversations] identity schema unavailable; using legacy conversation list fallback');
+    return listConversationItemsLegacy(userId, includeArchived);
+  }
 }
