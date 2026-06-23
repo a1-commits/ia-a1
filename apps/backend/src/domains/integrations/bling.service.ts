@@ -4,19 +4,23 @@ import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { decryptSecret, encryptSecret, maskSecret } from '../../lib/secretCrypto';
 import {
-  findExactGtinProduct,
   findExactSkuProduct,
   logBarcodeSearch,
   logMultiBarcodeAggregateResult,
   logStockSearchAssociation,
+  productMatchesGtin,
   summarizeProductForBarcodeLog,
 } from './blingBarcode';
 import {
   buildGtinSearchPaths,
   buildNameSearchPath,
   buildSkuSearchPath,
+  buildGtinFallbackDiscoveryPaths,
   collectGtinFields,
   dedupeProductOptions,
+  findExactGtinProduct,
+  logGtinSearchDiagnostic,
+  summarizeBlingProductCandidate,
   summarizeProductOption,
   type BlingProductOption,
 } from './blingProductSearch';
@@ -407,24 +411,83 @@ type BlingProduct = {
 
 export type BlingProductQueryMode = 'gtin' | 'sku';
 
+async function fetchBlingProductById(token: string, productId: number): Promise<BlingProduct | null> {
+  const res = await blingFetch<{ data?: BlingProduct }>(token, `/produtos/${productId}`);
+  if (!res.ok) return null;
+  return res.data.data ?? null;
+}
+
+async function searchGtinOnPath(
+  token: string,
+  gtin: string,
+  path: string,
+  phase: 'primary' | 'fallback',
+): Promise<BlingProduct | null> {
+  const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
+  const items = res.ok ? (res.data.data ?? []) : [];
+  const endpoint = path.split('?')[0] ?? path;
+  const firstCandidate = items[0] ? summarizeBlingProductCandidate(items[0]) : null;
+
+  const direct = findExactGtinProduct(items, gtin);
+  logGtinSearchDiagnostic({
+    query: gtin,
+    mode: 'GTIN',
+    endpoint,
+    phase,
+    candidateCount: items.length,
+    firstCandidate,
+    matched: Boolean(direct),
+    matchSource: direct ? `${phase}:${endpoint}` : undefined,
+    apiOk: res.ok,
+    apiStatus: res.ok ? 200 : res.status,
+  });
+
+  if (direct) return direct;
+
+  for (const item of items.slice(0, 10)) {
+    if (!item.id) continue;
+    const detail = await fetchBlingProductById(token, item.id);
+    if (!detail) continue;
+    if (productMatchesGtin(detail, gtin)) {
+      logGtinSearchDiagnostic({
+        query: gtin,
+        mode: 'GTIN',
+        endpoint: `/produtos/${item.id}`,
+        phase: 'hydrate',
+        candidateCount: 1,
+        firstCandidate: summarizeBlingProductCandidate(detail),
+        matched: true,
+        matchSource: `hydrate:${endpoint}`,
+        apiOk: true,
+      });
+      return detail;
+    }
+  }
+
+  return null;
+}
+
 async function findProductByGtinEan(token: string, gtin: string): Promise<BlingProduct | null> {
   for (const path of buildGtinSearchPaths(gtin)) {
-    const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
-    if (!res.ok) continue;
-
-    const items = res.data.data ?? [];
-    const match = findExactGtinProduct(items, gtin);
-    logBarcodeSearch({
-      searchedBarcode: gtin,
-      queryPath: path.split('?')[0] ?? path,
-      queryType: 'gtin',
-      candidateCount: items.length,
-      firstCandidate: items[0] ? summarizeProductForBarcodeLog(items[0]) : null,
-      matched: Boolean(match),
-    });
+    const match = await searchGtinOnPath(token, gtin, path, 'primary');
     if (match) return match;
   }
 
+  for (const path of buildGtinFallbackDiscoveryPaths(gtin)) {
+    const match = await searchGtinOnPath(token, gtin, path, 'fallback');
+    if (match) return match;
+  }
+
+  logGtinSearchDiagnostic({
+    query: gtin,
+    mode: 'GTIN',
+    endpoint: '/produtos',
+    phase: 'fallback',
+    candidateCount: 0,
+    firstCandidate: null,
+    matched: false,
+    apiOk: true,
+  });
   logBarcodeSearch({
     searchedBarcode: gtin,
     queryPath: '/produtos',
@@ -600,8 +663,29 @@ async function searchStockByProductQueryImpl(
   }
 
   try {
+    logGtinSearchDiagnostic({
+      query,
+      mode: mode === 'sku' ? 'SKU' : 'GTIN',
+      endpoint: 'searchStockByProductQuery',
+      phase: 'primary',
+      candidateCount: 0,
+      firstCandidate: null,
+      matched: false,
+      matchSource: 'request-start',
+    });
+
     const product = await findProductByQuery(tokenResult.token, query, mode);
     if (!product?.id) {
+      logGtinSearchDiagnostic({
+        query,
+        mode: mode === 'sku' ? 'SKU' : 'GTIN',
+        endpoint: 'searchStockByProductQuery',
+        phase: mode === 'sku' ? 'primary' : 'fallback',
+        candidateCount: 0,
+        firstCandidate: null,
+        matched: false,
+        matchSource: 'final-not-found',
+      });
       return {
         connectionId,
         storeLabel: row.storeLabel,
@@ -634,6 +718,18 @@ async function searchStockByProductQueryImpl(
     });
 
     const displayGtin = resolveDisplayGtin(product, query, mode);
+
+    logGtinSearchDiagnostic({
+      query,
+      mode: mode === 'sku' ? 'SKU' : 'GTIN',
+      endpoint: 'searchStockByProductQuery',
+      phase: 'primary',
+      candidateCount: 1,
+      firstCandidate: summarizeBlingProductCandidate(product),
+      matched: true,
+      matchSource: 'final-found',
+      apiOk: true,
+    });
 
     return {
       connectionId,

@@ -256,6 +256,13 @@ export function buildGtinSearchPaths(gtin: string): string[] {
   ];
 }
 
+export function buildGtinFallbackDiscoveryPaths(gtin: string): string[] {
+  return [
+    `/produtos?pagina=1&limite=50&codigo=${encodeURIComponent(gtin)}`,
+    `/produtos?pagina=1&limite=50&nome=${encodeURIComponent(gtin)}`,
+  ];
+}
+
 export function buildSkuSearchPath(sku: string): string {
   return `/produtos?pagina=1&limite=50&codigo=${encodeURIComponent(sku)}`;
 }
@@ -266,4 +273,50 @@ export function buildNameSearchPath(name: string): string {
 
 export function shouldAutoSelectNameMatch(options: BlingProductOption[]): boolean {
   return false;
+}
+
+export type BlingProductCandidateLog = {
+  id: number | null;
+  nome: string | null;
+  codigo: string | null;
+  gtin: string | null;
+  gtinEmbalagem: string | null;
+  codigoBarras: string | null;
+  ean: string | null;
+  gtinFields: string[];
+};
+
+export function summarizeBlingProductCandidate(product: unknown): BlingProductCandidateLog | null {
+  if (!product || typeof product !== 'object') return null;
+  const record = product as Record<string, unknown>;
+  const nestedCodigoBarras =
+    record.codigoBarras && typeof record.codigoBarras === 'object'
+      ? JSON.stringify(record.codigoBarras)
+      : normalizeBarcode(record.codigoBarras);
+
+  return {
+    id: typeof record.id === 'number' ? record.id : null,
+    nome: typeof record.nome === 'string' ? record.nome : null,
+    codigo: collectSkuField(product),
+    gtin: normalizeBarcode(record.gtin),
+    gtinEmbalagem: normalizeBarcode(record.gtinEmbalagem),
+    codigoBarras: nestedCodigoBarras,
+    ean: normalizeBarcode(record.ean),
+    gtinFields: collectGtinFields(product),
+  };
+}
+
+export function logGtinSearchDiagnostic(input: {
+  query: string;
+  mode: 'GTIN' | 'SKU' | 'NAME';
+  endpoint: string;
+  phase: 'primary' | 'fallback' | 'hydrate';
+  candidateCount: number;
+  firstCandidate: BlingProductCandidateLog | null;
+  matched: boolean;
+  matchSource?: string;
+  apiOk?: boolean;
+  apiStatus?: number;
+}): void {
+  console.info('[bling:gtin-diagnostic]', JSON.stringify(input));
 }

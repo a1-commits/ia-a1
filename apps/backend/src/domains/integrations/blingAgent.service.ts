@@ -6,6 +6,7 @@ import {
 } from './bling.service';
 import {
   formatProductDisambiguationResponse,
+  logGtinSearchDiagnostic,
   parseBlingStockRequest,
   shouldAutoSelectNameMatch,
 } from './blingProductSearch';
@@ -37,6 +38,16 @@ export async function tryHandleBlingStockQuery(input: {
   if (!request) return null;
 
   if (request.kind === 'name') {
+    logGtinSearchDiagnostic({
+      query: request.query,
+      mode: 'NAME',
+      endpoint: 'findProductOptionsByNameForAgent',
+      phase: 'primary',
+      candidateCount: 0,
+      firstCandidate: null,
+      matched: false,
+      matchSource: 'request-start',
+    });
     const options = await findProductOptionsByNameForAgent({
       userId: input.userId,
       agentId: input.agent.id,

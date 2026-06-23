@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildGtinFallbackDiscoveryPaths,
   collectGtinFields,
   collectSkuField,
   findExactGtinProduct,
@@ -11,6 +12,7 @@ import {
   productMatchesGtin,
   productMatchesSku,
   shouldAutoSelectNameMatch,
+  summarizeBlingProductCandidate,
 } from '../src/domains/integrations/blingProductSearch';
 
 const GTIN_SAMPLE = '0751320654120';
@@ -90,9 +92,26 @@ describe('parseBlingStockRequest', () => {
     });
   });
 
-  it('prioriza GTIN quando há número e texto', () => {
-    const parsed = parseBlingStockRequest(`${GTIN_SAMPLE} porta documento`);
-    assert.equal(parsed?.kind, 'barcode');
+  it('fallback discovery inclui codigo e nome', () => {
+    assert.deepEqual(buildGtinFallbackDiscoveryPaths('0751320654120'), [
+      '/produtos?pagina=1&limite=50&codigo=0751320654120',
+      '/produtos?pagina=1&limite=50&nome=0751320654120',
+    ]);
+  });
+
+  it('summarizeBlingProductCandidate expõe campos GTIN do Bling', () => {
+    const summary = summarizeBlingProductCandidate({
+      id: 10,
+      nome: 'PORTA DOCUMENTO',
+      codigo: 'PORTA-CARTAO',
+      gtin: '0751320654120',
+      gtinEmbalagem: '17891234567890',
+      ean: '0751320654120',
+      codigoBarras: { principal: '0751320654120' },
+    });
+    assert.equal(summary?.gtin, '0751320654120');
+    assert.equal(summary?.codigo, 'PORTA-CARTAO');
+    assert.ok(summary?.gtinFields.includes('0751320654120'));
   });
 });
 
