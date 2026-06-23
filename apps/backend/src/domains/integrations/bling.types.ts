@@ -89,9 +89,37 @@ export function computeStockSituation(
   return 'OK';
 }
 
+const BARCODE_TOKEN = /^\d{8,14}$/;
+
 export function extractBarcodesFromText(text: string): string[] {
-  const matches = text.match(/\b\d{8,14}\b/g) ?? [];
-  return Array.from(new Set(matches));
+  const normalized = text.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return [];
+
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  const pushBarcode = (candidate: string): void => {
+    const code = candidate.trim();
+    if (!BARCODE_TOKEN.test(code) || seen.has(code)) return;
+    seen.add(code);
+    ordered.push(code);
+  };
+
+  for (const part of normalized.split(/[\s;]+/)) {
+    const token = part.trim();
+    if (!token) continue;
+
+    if (BARCODE_TOKEN.test(token)) {
+      pushBarcode(token);
+      continue;
+    }
+
+    for (const match of token.match(/\d{8,14}/g) ?? []) {
+      pushBarcode(match);
+    }
+  }
+
+  return ordered;
 }
 
 export function formatStockResponse(data: BlingMultiStoreStockResponse): string {

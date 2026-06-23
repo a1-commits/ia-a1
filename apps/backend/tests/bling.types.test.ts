@@ -47,13 +47,45 @@ describe('computeStockSituation', () => {
 });
 
 describe('extractBarcodesFromText', () => {
+  const codeA = '7898215151784';
+  const codeB = '7892840825065';
+  const codeC = '7898956381167';
+
   it('extrai um código de barras', () => {
     assert.deepEqual(extractBarcodesFromText('Consulte 7891234567890'), ['7891234567890']);
   });
 
-  it('extrai múltiplos códigos únicos', () => {
-    const text = '7891234567890 e 7899876543210';
-    assert.deepEqual(extractBarcodesFromText(text), ['7891234567890', '7899876543210']);
+  it('extrai múltiplos códigos únicos separados por espaço', () => {
+    const text = `${codeA} ${codeB}`;
+    assert.deepEqual(extractBarcodesFromText(text), [codeA, codeB]);
+  });
+
+  it('extrai códigos separados por ponto e vírgula', () => {
+    assert.deepEqual(extractBarcodesFromText(`${codeA};${codeB}`), [codeA, codeB]);
+  });
+
+  it('extrai códigos separados por quebra de linha', () => {
+    assert.deepEqual(extractBarcodesFromText(`${codeA}\n${codeB}\n${codeC}`), [codeA, codeB, codeC]);
+  });
+
+  it('extrai formato misto com linhas vazias e separadores ERP', () => {
+    const text = `${codeA}\n\n${codeB};${codeC}`;
+    assert.deepEqual(extractBarcodesFromText(text), [codeA, codeB, codeC]);
+  });
+
+  it('extrai lista copiada do ERP com ; no fim de cada linha', () => {
+    const text = `${codeA};\n${codeB};\n${codeC};`;
+    assert.deepEqual(extractBarcodesFromText(text), [codeA, codeB, codeC]);
+  });
+
+  it('remove duplicados mantendo a ordem enviada', () => {
+    const text = `${codeA} ${codeB} ${codeA} ${codeC} ${codeB}`;
+    assert.deepEqual(extractBarcodesFromText(text), [codeA, codeB, codeC]);
+  });
+
+  it('ignora linhas vazias e espaços extras', () => {
+    const text = `  ${codeA}  \n   \n  ;  ${codeB}  `;
+    assert.deepEqual(extractBarcodesFromText(text), [codeA, codeB]);
   });
 });
 
