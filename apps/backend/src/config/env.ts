@@ -24,7 +24,9 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v !== 'false'),
   OLLAMA_BASE_URL: z.string().default('http://127.0.0.1:11434'),
-  OLLAMA_MODEL: z.string().default('llama3.1:8b'),
+  OLLAMA_MODEL: z.string().default('qwen2.5:0.5b'),
+  OLLAMA_REQUEST_TIMEOUT_MS: z.coerce.number().default(120_000),
+  OLLAMA_MAX_RETRIES: z.coerce.number().default(2),
   /** MOBI-MINIMAL-AGENT-1: recepcionista minimal (legado; fluxo sempre minimal). */
   MOBI_SIMPLE_AGENT: z
     .string()
