@@ -122,6 +122,36 @@ export function extractBarcodesFromText(text: string): string[] {
   return ordered;
 }
 
+export function dedupeBarcodesPreserveOrder(barcodes: string[]): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const raw of barcodes) {
+    const code = raw.trim();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    ordered.push(code);
+  }
+  return ordered;
+}
+
+export function assertBarcodeResultsOrder(input: {
+  requestedBarcodes: string[];
+  results: Array<{ barcode: string }>;
+}): void {
+  if (input.results.length !== input.requestedBarcodes.length) {
+    throw new Error(
+      `Barcode result count mismatch: expected ${input.requestedBarcodes.length}, got ${input.results.length}`,
+    );
+  }
+  for (let i = 0; i < input.requestedBarcodes.length; i++) {
+    const expected = input.requestedBarcodes[i]!;
+    const actual = input.results[i]!.barcode;
+    if (actual !== expected) {
+      throw new Error(`Barcode mismatch at index ${i}: expected ${expected}, got ${actual}`);
+    }
+  }
+}
+
 export function formatStockResponse(data: BlingMultiStoreStockResponse): string {
   return formatPeraStockResponse(data);
 }

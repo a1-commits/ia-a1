@@ -68,3 +68,34 @@ export function logBarcodeSearch(input: {
 }): void {
   console.info('[bling:barcode]', JSON.stringify(input));
 }
+
+export function logStockSearchAssociation(input: {
+  index: number;
+  searchedBarcode: string;
+  returnedBarcode: string;
+  connectionId: string;
+  found: boolean;
+}): void {
+  console.info(
+    '[bling:stock]',
+    JSON.stringify({
+      ...input,
+      barcodeMatch: input.searchedBarcode === input.returnedBarcode,
+    }),
+  );
+}
+
+export function logMultiBarcodeAggregateResult(input: {
+  index: number;
+  searchedBarcode: string;
+  resultBarcode: string;
+  foundAny: boolean;
+}): void {
+  console.info(
+    '[bling:stock:aggregate]',
+    JSON.stringify({
+      ...input,
+      indexMatchesBarcode: input.searchedBarcode === input.resultBarcode,
+    }),
+  );
+}

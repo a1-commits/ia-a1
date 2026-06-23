@@ -6,15 +6,38 @@ import { decryptSecret, encryptSecret, maskSecret } from '../../lib/secretCrypto
 import {
   findExactBarcodeProduct,
   logBarcodeSearch,
+  logMultiBarcodeAggregateResult,
+  logStockSearchAssociation,
   summarizeProductForBarcodeLog,
 } from './blingBarcode';
 import {
+  assertBarcodeResultsOrder,
   computeStockSituation,
+  dedupeBarcodesPreserveOrder,
   type BlingMultiStoreStockResponse,
+  type BlingStockByBarcodeResult,
   type BlingStockStoreResult,
 } from './bling.types';
 
 const MAX_CONNECTIONS = env.BLING_MAX_CONNECTIONS_PER_AGENT;
+
+type TokenResult =
+  | { ok: true; token: string }
+  | { ok: false; reason: string; status: BlingConnectionStatus };
+
+const tokenRefreshInflight = new Map<string, Promise<TokenResult>>();
+const connectionSearchChains = new Map<string, Promise<unknown>>();
+
+function runSerializedForConnection<T>(connectionId: string, fn: () => Promise<T>): Promise<T> {
+  const tail = connectionSearchChains.get(connectionId) ?? Promise.resolve();
+  const run = tail.catch(() => undefined).then(fn);
+  connectionSearchChains.set(connectionId, run);
+  return run.finally(() => {
+    if (connectionSearchChains.get(connectionId) === run) {
+      connectionSearchChains.delete(connectionId);
+    }
+  });
+}
 
 export type BlingConnectionDto = {
   id: string;
@@ -278,9 +301,7 @@ export async function handleBlingOAuthCallback(input: {
   return { ok: true, agentId: row.agentId, connectionId: row.id };
 }
 
-export async function getValidAccessToken(
-  connectionId: string,
-): Promise<{ ok: true; token: string } | { ok: false; reason: string; status: BlingConnectionStatus }> {
+export async function getValidAccessToken(connectionId: string): Promise<TokenResult> {
   const row = await prisma.blingConnection.findUnique({ where: { id: connectionId } });
   if (!row || !row.isActive) {
     return { ok: false, reason: 'Conexão não encontrada', status: BlingConnectionStatus.ERROR };
@@ -294,7 +315,14 @@ export async function getValidAccessToken(
     }
   }
 
-  return refreshAccessToken(connectionId);
+  const inflight = tokenRefreshInflight.get(connectionId);
+  if (inflight) return inflight;
+
+  const refreshPromise = refreshAccessToken(connectionId).finally(() => {
+    tokenRefreshInflight.delete(connectionId);
+  });
+  tokenRefreshInflight.set(connectionId, refreshPromise);
+  return refreshPromise;
 }
 
 export async function refreshAccessToken(
@@ -442,6 +470,15 @@ export async function searchStockByBarcode(
   connectionId: string,
   barcode: string,
 ): Promise<BlingStockStoreResult> {
+  return runSerializedForConnection(connectionId, () =>
+    searchStockByBarcodeImpl(connectionId, barcode),
+  );
+}
+
+async function searchStockByBarcodeImpl(
+  connectionId: string,
+  barcode: string,
+): Promise<BlingStockStoreResult> {
   const row = await prisma.blingConnection.findUnique({ where: { id: connectionId } });
   if (!row) {
     return {
@@ -541,6 +578,48 @@ export async function searchStockByBarcode(
   }
 }
 
+export async function collectStockResultsForBarcodes(input: {
+  barcodes: string[];
+  connections: Array<{ id: string }>;
+  searchStock: (connectionId: string, barcode: string) => Promise<BlingStockStoreResult>;
+}): Promise<{ uniqueBarcodes: string[]; results: BlingStockByBarcodeResult[] }> {
+  const uniqueBarcodes = dedupeBarcodesPreserveOrder(input.barcodes);
+  const results: BlingStockByBarcodeResult[] = [];
+
+  for (let index = 0; index < uniqueBarcodes.length; index++) {
+    const barcode = uniqueBarcodes[index]!;
+    const storeResults: BlingStockStoreResult[] = [];
+
+    for (const connection of input.connections) {
+      const storeResult = await input.searchStock(connection.id, barcode);
+      logStockSearchAssociation({
+        index,
+        searchedBarcode: barcode,
+        returnedBarcode: storeResult.barcode,
+        connectionId: connection.id,
+        found: storeResult.found,
+      });
+      storeResults.push(storeResult);
+    }
+
+    const totalCurrentStock = storeResults.reduce(
+      (sum, s) => sum + (s.found && s.currentStock !== null ? s.currentStock : 0),
+      0,
+    );
+    const barcodeResult = { barcode, stores: storeResults, totalCurrentStock };
+    logMultiBarcodeAggregateResult({
+      index,
+      searchedBarcode: barcode,
+      resultBarcode: barcodeResult.barcode,
+      foundAny: storeResults.some((s) => s.found),
+    });
+    results.push(barcodeResult);
+  }
+
+  assertBarcodeResultsOrder({ requestedBarcodes: uniqueBarcodes, results });
+  return { uniqueBarcodes, results };
+}
+
 export async function aggregateStockForAgent(input: {
   userId: string;
   agentId: string;
@@ -556,27 +635,17 @@ export async function aggregateStockForAgent(input: {
     orderBy: { createdAt: 'asc' },
   });
 
-  const uniqueBarcodes = Array.from(new Set(input.barcodes.map((b) => b.trim()).filter(Boolean)));
-
   const storeMeta = connections.map((c) => ({
     connectionId: c.id,
     storeLabel: c.storeLabel,
     status: c.status,
   }));
 
-  const results = await Promise.all(
-    uniqueBarcodes.map(async (barcode) => {
-      const storeResults: BlingStockStoreResult[] = [];
-      for (const connection of connections) {
-        storeResults.push(await searchStockByBarcode(connection.id, barcode));
-      }
-      const totalCurrentStock = storeResults.reduce(
-        (sum, s) => sum + (s.found && s.currentStock !== null ? s.currentStock : 0),
-        0,
-      );
-      return { barcode, stores: storeResults, totalCurrentStock };
-    }),
-  );
+  const { uniqueBarcodes, results } = await collectStockResultsForBarcodes({
+    barcodes: input.barcodes,
+    connections,
+    searchStock: searchStockByBarcode,
+  });
 
   return {
     agentId: input.agentId,
