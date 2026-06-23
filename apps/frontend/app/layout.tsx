@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'AGENTE MOBI',
-  description: 'Assistente pessoal inteligente — interface web',
+  title: 'Mobi — Plataforma de Agentes',
+  description: 'Crie, treine e opere agentes de IA',
   appleWebApp: {
     capable: true,
     title: 'AGENTE MOBI',
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#09090b',
+  themeColor: '#0F1115',
 };
 
 export default function RootLayout({

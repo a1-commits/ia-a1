@@ -9,7 +9,7 @@ export default function HomePage(): React.ReactElement {
 
   useEffect(() => {
     const t = getToken();
-    router.replace(t ? '/assistente' : '/login');
+    router.replace(t ? '/dashboard' : '/login');
   }, [router]);
 
   return (

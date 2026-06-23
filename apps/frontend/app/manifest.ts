@@ -2,9 +2,9 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'AGENTE MOBI',
+    name: 'Mobi Platform',
     short_name: 'Mobi',
-    description: 'Chat, WhatsApp e controles do agente Mobi',
+    description: 'Plataforma para criar e operar agentes de IA',
     start_url: '/',
     display: 'standalone',
     orientation: 'portrait-primary',

@@ -1,29 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  --moble-black: #0e0e0e;
-  --moble-dark: #171717;
-  --moble-gray: #2a2a2a;
-  --moble-muted: #737373;
-  --moble-bg: #f6f5f2;
-  --moble-card: #ffffff;
-  --moble-light-gray: #f5f5f5;
-  --moble-white: #ffffff;
-  --moble-accent: #c8a96a;
-  --moble-accent-soft: #efe4c8;
-  --moble-border: #e6e2d8;
-  --moble-success: #2f7d5c;
-  --moble-warning: #b7791f;
-  --moble-danger: #b42318;
+  --bg: #0f1115;
+  --card: #171a21;
+  --hover: #202532;
+  --primary: #4f8cff;
+  --success: #22c55e;
+  --fg: #f8fafc;
+  --muted: #94a3b8;
+  --border: #252a35;
 
-  --bg: var(--moble-bg);
-  --panel: var(--moble-card);
-  --fg: var(--moble-black);
-  --muted: var(--moble-muted);
-  --mobi-orange: var(--moble-accent);
-  --mobi-graphite: var(--moble-dark);
-  --accent: var(--moble-accent);
-  --accent-soft: rgba(200, 169, 106, 0.24);
+  --moble-black: #f8fafc;
+  --moble-dark: #171a21;
+  --moble-gray: #94a3b8;
+  --moble-muted: #94a3b8;
+  --moble-bg: #0f1115;
+  --moble-card: #171a21;
+  --moble-light-gray: #202532;
+  --moble-white: #171a21;
+  --moble-accent: #4f8cff;
+  --moble-accent-soft: rgba(79, 140, 255, 0.16);
+  --moble-border: #252a35;
+  --moble-success: #22c55e;
+  --moble-warning: #f59e0b;
+  --moble-danger: #ef4444;
+
+  --panel: var(--card);
+  --mobi-orange: var(--primary);
+  --mobi-graphite: var(--fg);
+  --accent: var(--primary);
+  --accent-soft: rgba(79, 140, 255, 0.16);
 }
 
 @theme inline {
@@ -36,9 +42,7 @@
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: 'Inter', var(--font-geist-sans), system-ui, sans-serif;
-  background-image: radial-gradient(circle at top left, rgba(200, 169, 106, 0.13), transparent 34rem),
-    linear-gradient(180deg, #fbfaf7 0%, var(--moble-bg) 100%);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
   letter-spacing: -0.01em;
 }
 
@@ -47,29 +51,27 @@ a {
 }
 
 .brand-btn {
-  background: var(--moble-accent);
-  color: var(--moble-black);
-  border-radius: 12px;
+  background: var(--primary);
+  color: white;
+  border-radius: 10px;
   font-weight: 600;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  transition: background-color 0.18s ease, transform 0.18s ease;
 }
 
 .brand-btn:hover {
-  filter: brightness(1.03);
+  background: #3b7af0;
   transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(200, 169, 106, 0.22);
 }
 
 .brand-link {
-  color: var(--moble-accent);
+  color: var(--primary);
 }
 
 .card {
-  background: var(--moble-white);
-  border: 1px solid var(--moble-border);
-  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   padding: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
 }
 
 .page-shell {
@@ -80,7 +82,7 @@ a {
 .page-container {
   margin: 0 auto;
   width: 100%;
-  max-width: 1180px;
+  max-width: 1200px;
 }
 
 .page-header {
@@ -89,57 +91,65 @@ a {
 
 .eyebrow {
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--moble-accent);
+  color: var(--primary);
 }
 
 .muted-text {
-  color: var(--moble-muted);
+  color: var(--muted);
 }
 
 .premium-input {
   width: 100%;
-  border-radius: 12px;
-  border: 1px solid var(--moble-border);
-  background: rgba(255, 255, 255, 0.92);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--hover);
+  color: var(--fg);
   padding: 10px 12px;
   font-size: 14px;
   outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .premium-input:focus {
-  border-color: rgba(200, 169, 106, 0.85);
-  box-shadow: 0 0 0 4px rgba(200, 169, 106, 0.14);
-  background: white;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.2);
+}
+
+.premium-input::placeholder {
+  color: var(--muted);
 }
 
 .premium-button {
-  border-radius: 12px;
-  background: var(--moble-black);
+  border-radius: 10px;
+  background: var(--primary);
   color: white;
   padding: 10px 14px;
   font-size: 14px;
-  font-weight: 700;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+  font-weight: 600;
+  transition: background-color 0.18s ease, transform 0.18s ease;
 }
 
 .premium-button:hover:not(:disabled) {
+  background: #3b7af0;
   transform: translateY(-1px);
-  box-shadow: 0 12px 30px rgba(14, 14, 14, 0.16);
 }
 
 .premium-button-accent {
-  background: var(--moble-accent);
-  color: var(--moble-black);
+  background: var(--primary);
+  color: white;
 }
 
 .premium-button-ghost {
-  background: white;
-  color: var(--moble-black);
-  border: 1px solid var(--moble-border);
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.premium-button-ghost:hover:not(:disabled) {
+  background: var(--hover);
 }
 
 .premium-badge {
@@ -147,16 +157,16 @@ a {
   align-items: center;
   gap: 6px;
   border-radius: 999px;
-  border: 1px solid var(--moble-border);
-  background: white;
+  border: 1px solid var(--border);
+  background: var(--hover);
   padding: 4px 10px;
   font-size: 11px;
-  font-weight: 700;
-  color: var(--moble-muted);
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #ece8dd, #f8f6f0, #ece8dd);
+  background: linear-gradient(90deg, #171a21, #202532, #171a21);
   background-size: 200% 100%;
   animation: skeleton-loading 1.3s ease-in-out infinite;
 }
@@ -176,27 +186,16 @@ a {
   }
 }
 
-.logo {
-  height: 28px;
-  width: auto;
-  max-width: 160px;
-  object-fit: contain;
-}
-
 button {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
-}
-
-button:hover:not(:disabled) {
-  transform: translateY(-1px);
+  transition: transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
 }
 
 input,
 select,
 textarea {
   border-radius: 10px;
-  border-color: #ddd;
-  padding: 10px;
+  border-color: var(--border);
+  color: var(--fg);
 }
 
 h1,
@@ -208,5 +207,5 @@ h3 {
 
 ::selection {
   background: var(--accent-soft);
-  color: var(--moble-black);
+  color: var(--fg);
 }
