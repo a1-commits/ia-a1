@@ -377,6 +377,40 @@ conversationsRouter.post('/', async (req, res, next) => {
   }
 });
 
+conversationsRouter.delete('/', async (req, res, next) => {
+  try {
+    const userId = req.userId!;
+    await prisma.customerContext.updateMany({
+      where: { userId },
+      data: { lastConversationId: null },
+    });
+    await prisma.conversation.deleteMany({ where: { userId } });
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
+conversationsRouter.delete('/:id', async (req, res, next) => {
+  try {
+    const userId = req.userId!;
+    const id = req.params.id;
+    const conv = await prisma.conversation.findFirst({ where: { id, userId } });
+    if (!conv) {
+      res.status(404).json({ error: 'Conversa não encontrada' });
+      return;
+    }
+    await prisma.customerContext.updateMany({
+      where: { userId, lastConversationId: id },
+      data: { lastConversationId: null },
+    });
+    await prisma.conversation.delete({ where: { id } });
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
 conversationsRouter.patch('/:id', async (req, res, next) => {
   try {
     const userId = req.userId!;
