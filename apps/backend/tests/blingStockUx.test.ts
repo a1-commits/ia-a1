@@ -101,7 +101,7 @@ describe('formatPeraStockResponse UX', () => {
     assert.doesNotMatch(text, /---/);
   });
 
-  it('CASO 3: consulta múltipla separada por código', () => {
+  it('CASO 3: consulta múltipla separada por código com blocos limpos', () => {
     const text = formatPeraStockResponse(
       mockData([
         {
@@ -125,10 +125,45 @@ describe('formatPeraStockResponse UX', () => {
       ]),
     );
 
-    assert.match(text, /=== Código 7891234567890 ===/);
-    assert.match(text, /=== Código 7899876543210 ===/);
+    assert.match(text, /^Código: 7891234567890/);
+    assert.match(text, /Código: 7899876543210/);
     assert.match(text, /Produto: Produto A/);
     assert.match(text, /❌ Produto não encontrado em nenhuma loja conectada\./);
+    assert.match(text, /---/);
+    assert.doesNotMatch(text, /===/);
+    assert.doesNotMatch(text, /\| --- \|/);
+  });
+
+  it('CASO 4: formato final multi-código conforme operação PERA', () => {
+    const text = formatPeraStockResponse(
+      mockData([
+        {
+          barcode: '7898956381167',
+          totalCurrentStock: 0,
+          stores: [store('PB1', { found: false, situation: 'NAO_ENCONTRADO' })],
+        },
+        {
+          barcode: '7898215151784',
+          totalCurrentStock: 1,
+          stores: [
+            store('PB1', {
+              found: true,
+              situation: 'OK',
+              productName: 'CREME DE LEITE PIRACANJUBA 200G',
+              currentStock: 1,
+              minimumStock: 0,
+            }),
+          ],
+        },
+      ]),
+    );
+
+    assert.match(text, /Código: 7898956381167[\s\S]*❌ Produto não encontrado em nenhuma loja conectada\./);
+    assert.match(text, /---[\s\S]*Código: 7898215151784/);
+    assert.match(text, /Produto: CREME DE LEITE PIRACANJUBA 200G/);
+    assert.match(text, /Total disponível: 1 unidade/);
+    assert.doesNotMatch(text, /===/);
+    assert.doesNotMatch(text, /1 unidades/);
   });
 
   it('ordena lojas pelo nome', () => {
