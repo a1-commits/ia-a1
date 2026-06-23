@@ -11,9 +11,17 @@ import {
   toggleAgentActive,
   updateAgent,
 } from './agent.service';
+import { aggregateStockForAgent } from '../integrations/bling.service';
+import { createRateLimit } from '../../middleware/rateLimit';
 
 export const agentsRouter = Router();
 agentsRouter.use(authMiddleware);
+
+const blingStockRateLimit = createRateLimit({
+  windowMs: 60_000,
+  max: 30,
+  message: 'Muitas consultas de estoque. Aguarde um minuto.',
+});
 
 const upsertSchema = z.object({
   name: z.string().min(1),
@@ -95,6 +103,20 @@ agentsRouter.patch('/:id/default', async (req, res, next) => {
       return;
     }
     res.json(item);
+  } catch (e) {
+    next(e);
+  }
+});
+
+agentsRouter.post('/:id/tools/bling/stock-by-barcode', blingStockRateLimit, async (req, res, next) => {
+  try {
+    const body = z.object({ barcodes: z.array(z.string().min(8).max(14)).min(1).max(20) }).parse(req.body);
+    const data = await aggregateStockForAgent({
+      userId: req.userId!,
+      agentId: req.params.id,
+      barcodes: body.barcodes,
+    });
+    res.json(data);
   } catch (e) {
     next(e);
   }

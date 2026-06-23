@@ -68,6 +68,18 @@ const envSchema = z.object({
   ADMIN_IP_ALLOWLIST: z.string().optional(),
   SECURITY_AUDIT_RETENTION_DAYS: z.coerce.number().default(90),
   CORS_ORIGIN: z.string().default('*'),
+  /** Chave para criptografar tokens de integração (mín. 8 chars). */
+  INTEGRATION_ENCRYPTION_KEY: z.string().min(8).default('dev-integration-key-change-me'),
+  BLING_REDIRECT_URI: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim() ? v : 'http://localhost:4000/api/integrations/bling/callback')),
+  BLING_AUTHORIZE_URL: z.string().default('https://www.bling.com.br/Api/v3/oauth/authorize'),
+  BLING_TOKEN_URL: z.string().default('https://api.bling.com.br/Api/v3/oauth/token'),
+  BLING_API_BASE_URL: z.string().default('https://api.bling.com.br/Api/v3'),
+  BLING_DEFAULT_SCOPES: z.string().default(''),
+  BLING_STORE_TIMEOUT_MS: z.coerce.number().default(8000),
+  BLING_MAX_CONNECTIONS_PER_AGENT: z.coerce.number().default(4),
 });
 
 export type Env = z.infer<typeof envSchema>;

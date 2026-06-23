@@ -4,6 +4,7 @@ import { generateAssistantReply, syncAiRuntimePreference } from '../ai/aiService
 import { buildDynamicAgentPrompt } from '../agents/agentPrompt.service';
 import { resolveAgentForMessage } from '../agents/agentResolver.service';
 import { touchContactInteraction } from '../contacts/contact.service';
+import { tryHandleBlingStockQuery } from '../integrations/blingAgent.service';
 import { ROUTER_HISTORY_MESSAGES, type AgentPromptChannel } from './prompt.service';
 import {
   classifyFromConversation,
@@ -397,6 +398,35 @@ export async function processAgentMessage(
     phone: input.customerPhone,
     whatsappId: input.customerWhatsappId,
   });
+
+  const blingReply = await tryHandleBlingStockQuery({
+    userId,
+    agent: resolvedAgent,
+    content: input.content,
+  });
+  if (blingReply) {
+    const assistantMsg = await prisma.message.create({
+      data: { conversationId, role: MessageRole.ASSISTANT, content: blingReply },
+    });
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date(), lastMessageAt: new Date() },
+    });
+    return {
+      conversationId,
+      userMessage: userMsg,
+      assistantMessage: assistantMsg,
+      agentMeta: routerAgentMeta({
+        interpretation: {
+          context: ContextType.GERAL,
+          kind: 'message',
+          confidence: 1,
+          rationale: 'consultar_estoque_bling_multi_lojas',
+        },
+        routerCategory: null,
+      }),
+    };
+  }
 
   if (input.customerPhone || input.customerWhatsappId) {
     await touchContactInteraction({

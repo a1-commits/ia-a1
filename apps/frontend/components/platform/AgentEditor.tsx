@@ -226,6 +226,21 @@ export function AgentEditor({
 
         {activeTab === 'ferramentas' && (
           <div className="space-y-3">
+            {!isNew && (
+              <PlatformCard className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="font-medium text-[var(--fg)]">Bling (multi-lojas)</div>
+                  <div className="text-sm text-[var(--muted)]">
+                    Configure até 4 contas Bling para consulta de estoque por código de barras.
+                  </div>
+                </div>
+                <Link href={`/agentes/${agent.id}/integrations/bling`}>
+                  <Button variant="accent" className="text-xs">
+                    Configurar Bling
+                  </Button>
+                </Link>
+              </PlatformCard>
+            )}
             {catalog.map((tool) => (
               <PlatformCard key={tool.id} className="flex items-center justify-between gap-4">
                 <div>

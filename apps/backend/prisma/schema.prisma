@@ -80,6 +80,7 @@ model User {
   agents           Agent[]
   contacts         Contact[]
   toolConnections  ToolConnection[]
+  blingConnections BlingConnection[]
 }
 
 model Conversation {
@@ -263,6 +264,13 @@ enum ToolType {
   CUSTOM_API
 }
 
+enum BlingConnectionStatus {
+  DISCONNECTED
+  CONNECTED
+  TOKEN_EXPIRED
+  ERROR
+}
+
 model RefreshToken {
   id        String    @id @default(cuid())
   userId    String
@@ -309,9 +317,38 @@ model Agent {
   updatedAt      DateTime       @updatedAt
   contactAgents  ContactAgent[]
   agentTools     AgentTool[]
+  blingConnections BlingConnection[]
 
   @@index([userId])
   @@index([userId, isDefault])
+}
+
+model BlingConnection {
+  id                    String                @id @default(cuid())
+  userId                String
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId               String
+  agent                 Agent                 @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  name                  String
+  storeLabel            String
+  clientId              String
+  clientSecretEncrypted String
+  accessTokenEncrypted  String?
+  refreshTokenEncrypted String?
+  tokenExpiresAt        DateTime?
+  scopes                String?
+  status                BlingConnectionStatus @default(DISCONNECTED)
+  oauthState            String?
+  oauthStateExpiresAt   DateTime?
+  lastSyncAt            DateTime?
+  lastError             String?
+  isActive              Boolean               @default(true)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([userId])
+  @@index([agentId])
+  @@index([userId, agentId])
 }
 
 model Contact {
