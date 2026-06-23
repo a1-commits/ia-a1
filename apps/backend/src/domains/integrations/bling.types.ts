@@ -1,4 +1,5 @@
 import { BlingConnectionStatus } from '@prisma/client';
+import { formatPeraStockResponse } from './blingStockUx';
 
 export type StockSituation =
   | 'OK'
@@ -61,7 +62,9 @@ Situações possíveis:
 - NÃO ENCONTRADO
 - ERRO NA CONSULTA
 
-Quando houver vários códigos, organize a resposta em tabela ou lista separada por código.
+Quando houver vários códigos, organize a resposta separada por código, com uma seção por loja.
+
+Use linguagem operacional e amigável. Não use tabelas markdown, JSON ou cabeçalhos técnicos da integração.
 
 Nunca invente informações.
 Nunca responda sem consultar a ferramenta.
@@ -92,34 +95,5 @@ export function extractBarcodesFromText(text: string): string[] {
 }
 
 export function formatStockResponse(data: BlingMultiStoreStockResponse): string {
-  if (data.stores.length === 0) {
-    return 'Não há contas Bling conectadas a este agente. Configure as lojas em Integrações Bling.';
-  }
-
-  const lines: string[] = ['Consulta de estoque Bling (multi-lojas)', ''];
-
-  for (const result of data.results) {
-    lines.push(`Código de barras: ${result.barcode}`);
-    lines.push('| Loja | Produto | Cód. interno | Estoque | Mínimo | Situação |');
-    lines.push('| --- | --- | --- | ---: | ---: | --- |');
-    for (const store of result.stores) {
-      const situationLabel =
-        store.situation === 'ABAIXO_DO_MINIMO'
-          ? 'ABAIXO DO MÍNIMO'
-          : store.situation === 'NAO_ENCONTRADO'
-            ? 'NÃO ENCONTRADO'
-            : store.situation === 'ERRO_CONSULTA'
-              ? 'ERRO NA CONSULTA'
-              : store.situation === 'SEM_ESTOQUE'
-                ? 'SEM ESTOQUE'
-                : 'OK';
-      lines.push(
-        `| ${store.storeLabel} | ${store.productName ?? '—'} | ${store.internalCode ?? '—'} | ${store.currentStock ?? '—'} | ${store.minimumStock ?? '—'} | ${situationLabel}${store.error ? ` (${store.error})` : ''} |`,
-      );
-    }
-    lines.push(`Total estoque (lojas com produto): ${result.totalCurrentStock}`);
-    lines.push('');
-  }
-
-  return lines.join('\n').trim();
+  return formatPeraStockResponse(data);
 }

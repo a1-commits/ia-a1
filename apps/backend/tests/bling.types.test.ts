@@ -65,10 +65,10 @@ describe('formatStockResponse', () => {
       stores: [],
       results: [],
     });
-    assert.match(text, /Não há contas Bling conectadas/);
+    assert.match(text, /Não há lojas Bling conectadas/);
   });
 
-  it('formata 1 código em 4 lojas com totais', () => {
+  it('delega ao formatter amigável do PERA', () => {
     const data = mockResponse({
       results: [
         {
@@ -77,7 +77,7 @@ describe('formatStockResponse', () => {
           stores: [
             {
               connectionId: 'c1',
-              storeLabel: 'Loja 1',
+              storeLabel: 'PB1',
               found: true,
               productName: 'Produto Exemplo',
               internalCode: 'PROD001',
@@ -89,19 +89,7 @@ describe('formatStockResponse', () => {
             },
             {
               connectionId: 'c2',
-              storeLabel: 'Loja 2',
-              found: true,
-              productName: 'Produto Exemplo',
-              internalCode: 'PROD001',
-              barcode: '7891234567890',
-              currentStock: 4,
-              minimumStock: 10,
-              situation: 'ABAIXO_DO_MINIMO',
-              error: null,
-            },
-            {
-              connectionId: 'c3',
-              storeLabel: 'Loja 3',
+              storeLabel: 'PB2',
               found: false,
               productName: null,
               internalCode: null,
@@ -111,75 +99,15 @@ describe('formatStockResponse', () => {
               situation: 'NAO_ENCONTRADO',
               error: null,
             },
-            {
-              connectionId: 'c4',
-              storeLabel: 'Loja 4',
-              found: false,
-              productName: null,
-              internalCode: null,
-              barcode: '7891234567890',
-              currentStock: null,
-              minimumStock: null,
-              situation: 'ERRO_CONSULTA',
-              error: 'Timeout',
-            },
           ],
         },
       ],
     });
     const text = formatStockResponse(data);
-    assert.match(text, /Loja 1/);
-    assert.match(text, /Loja 2/);
-    assert.match(text, /ABAIXO DO MÍNIMO/);
-    assert.match(text, /NÃO ENCONTRADO/);
-    assert.match(text, /ERRO NA CONSULTA/);
-    assert.match(text, /Total estoque \(lojas com produto\): 22/);
-  });
-
-  it('organiza múltiplos códigos separadamente', () => {
-    const data = mockResponse({
-      results: [
-        {
-          barcode: '7891234567890',
-          totalCurrentStock: 5,
-          stores: [
-            {
-              connectionId: 'c1',
-              storeLabel: 'Loja 1',
-              found: true,
-              productName: 'A',
-              internalCode: 'A1',
-              barcode: '7891234567890',
-              currentStock: 5,
-              minimumStock: 2,
-              situation: 'OK',
-              error: null,
-            },
-          ],
-        },
-        {
-          barcode: '7899876543210',
-          totalCurrentStock: 0,
-          stores: [
-            {
-              connectionId: 'c1',
-              storeLabel: 'Loja 1',
-              found: true,
-              productName: 'B',
-              internalCode: 'B1',
-              barcode: '7899876543210',
-              currentStock: 0,
-              minimumStock: 5,
-              situation: 'SEM_ESTOQUE',
-              error: null,
-            },
-          ],
-        },
-      ],
-    });
-    const text = formatStockResponse(data);
-    assert.match(text, /7891234567890/);
-    assert.match(text, /7899876543210/);
-    assert.match(text, /SEM ESTOQUE/);
+    assert.match(text, /Código: 7891234567890/);
+    assert.match(text, /Produto: Produto Exemplo/);
+    assert.match(text, /Total disponível: 22 unidades/);
+    assert.doesNotMatch(text, /Consulta de estoque Bling/);
+    assert.doesNotMatch(text, /\| --- \|/);
   });
 });
