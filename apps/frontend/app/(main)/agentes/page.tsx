@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button } from '@/components/Button';
 import { PageHeader } from '@/components/platform/PageHeader';
@@ -8,6 +9,7 @@ import { PlatformCard } from '@/components/platform/PlatformCard';
 import { MOCK_AGENTS, type PlatformAgent } from '@/lib/mock/platform';
 
 export default function AgentesPage(): React.ReactElement {
+  const router = useRouter();
   const [agents, setAgents] = useState<PlatformAgent[]>(MOCK_AGENTS);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -40,12 +42,12 @@ export default function AgentesPage(): React.ReactElement {
     <div className="page-shell">
       <div className="page-container">
         <PageHeader
-          eyebrow="Agentes de IA"
+          eyebrow="Hub de agentes"
           title="Agentes"
-          description="Crie, treine e gerencie agentes inteligentes para atender seus contatos."
+          description="Crie, edite e gerencie agentes de IA para seus contatos e canais."
           actions={
-            <Link href="/agentes/novo/treinamento">
-              <Button variant="accent">Criar agente</Button>
+            <Link href="/agentes/novo">
+              <Button variant="accent">Novo agente</Button>
             </Link>
           }
         />
@@ -74,20 +76,29 @@ export default function AgentesPage(): React.ReactElement {
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-[var(--muted)]">{agent.description}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">{agent.objective}</p>
                   <div className="mt-3 flex flex-wrap gap-4 text-xs text-[var(--muted)]">
                     <span>{agent.contactCount} contatos</span>
                     <span>{agent.model}</span>
+                    <span>{agent.toolIds.length} ferramentas</span>
                     <span>Atualizado {new Date(agent.updatedAt).toLocaleDateString('pt-BR')}</span>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Link href={`/agentes/${agent.id}/treinamento`}>
+                  <Link href={`/agentes/${agent.id}`}>
                     <Button variant="ghost" className="text-xs">
                       Editar
                     </Button>
                   </Link>
                   <Button variant="ghost" className="text-xs" onClick={() => duplicateAgent(agent)}>
                     Duplicar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-xs"
+                    onClick={() => router.push(`/agentes/${agent.id}?tab=teste`)}
+                  >
+                    Testar
                   </Button>
                   <Button variant="ghost" className="text-xs" onClick={() => toggleAgent(agent)}>
                     {agent.active ? 'Desativar' : 'Ativar'}

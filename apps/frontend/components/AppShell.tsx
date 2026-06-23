@@ -9,12 +9,15 @@ const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
   { href: '/agentes', label: 'Agentes', icon: '🤖' },
   { href: '/contatos', label: 'Contatos', icon: '👥' },
+  { href: '/ferramentas', label: 'Ferramentas', icon: '🔌' },
   { href: '/chat', label: 'Chat', icon: '💬' },
   { href: '/tasks', label: 'Tarefas', icon: '📋' },
   { href: '/settings', label: 'Ajustes', icon: '⚙️' },
 ] as const;
 
 const ADMIN_NAV = [{ href: '/usuarios', label: 'Usuários', icon: '👤' }] as const;
+
+const MOBILE_NAV = NAV.slice(0, 5);
 
 export function AppShell({ children }: { children: ReactNode }): React.ReactElement {
   const pathname = usePathname();
@@ -31,7 +34,7 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactElem
             </div>
             <div>
               <div className="text-sm font-semibold text-[var(--fg)]">Mobi</div>
-              <div className="text-[11px] text-[var(--muted)]">Plataforma de agentes</div>
+              <div className="text-[11px] text-[var(--muted)]">Hub de agentes</div>
             </div>
           </div>
         </div>
@@ -78,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactElem
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 flex border-t border-[var(--border)] bg-[var(--card)] pb-[env(safe-area-inset-bottom)] md:hidden">
-        {navItems.slice(0, 5).map((item) => {
+        {MOBILE_NAV.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
