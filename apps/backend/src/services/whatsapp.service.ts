@@ -98,10 +98,6 @@ class WhatsAppService {
 
   private lastBotReplyFingerprintByJid = new Map<string, string>();
 
-  private autoReplyWindowByJid = new Map<string, number[]>();
-
-  private staticReplySentByJid = new Set<string>();
-
   private pausedByNumber = new Set<string>();
 
   private recentInboundByNumber = new Map<string, WhatsAppContactControl>();
@@ -134,7 +130,7 @@ class WhatsAppService {
     if (!existing) return null;
     const next: WhatsAppContactControl = { ...existing, paused };
     this.recentInboundByNumber.set(number, next);
-    console.log(`[whatsapp] handoff ${paused ? 'ativado' : 'desativado'} para ${number}`);
+    console.log(`[whatsapp] pausa manual ${paused ? 'ativada' : 'desativada'} para ${number}`);
     return next;
   }
 
@@ -762,109 +758,6 @@ class WhatsAppService {
     return this.transcribeVoiceMessage(message);
   }
 
-  private async notifySalesManager(params: {
-    customerNumber: string;
-    customerMessage: string;
-    agentReply: string;
-  }): Promise<void> {
-    const manager = env.WHATSAPP_SALES_MANAGER_NUMBER?.replace(/\D/g, '');
-    if (!manager || !this.client) return;
-    const text = [
-      'Novo lead encaminhado para gerente de vendas (Moble).',
-      `Cliente: ${params.customerNumber}`,
-      `Mensagem: ${params.customerMessage.slice(0, 260)}`,
-      `Resumo IA: ${params.agentReply.slice(0, 420)}`,
-    ].join('\n');
-    await this.client.sendMessage(`${manager}@c.us`, text.slice(0, 3500));
-    console.log('[whatsapp] aviso enviado ao gerente de vendas');
-  }
-
-  private wantsHumanAttendance(text: string): boolean {
-    const t = text
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-
-    return (
-      /\b(falar|conversar|chamar|atendimento|atendente)\b.{0,40}\b(humano|pessoa|alguem|responsavel|dono|gerente|consultor|vendedor|ronan|voce|vc)\b/.test(t) ||
-      /\b(humano|atendente|responsavel|dono|gerente|consultor|vendedor|ronan)\b.{0,40}\b(falar|conversar|chamar|me liga|ligar|atender)\b/.test(t) ||
-      /\b(nao quero|sem|dispenso)\b.{0,25}\b(bot|robo|ia|inteligencia artificial|atendimento automatico)\b/.test(t) ||
-      /\b(posso|consigo|quero|preciso)\b.{0,35}\b(falar|conversar)\b.{0,35}\b(com voce|com vc|com o ronan|com alguem|com uma pessoa)\b/.test(t)
-    );
-  }
-
-  private recordAutoReplyQuota(jid: string): boolean {
-    const now = Date.now();
-    const windowMs = 10 * 60 * 1000;
-    const maxReplies = 5;
-    const prev = this.autoReplyWindowByJid.get(jid) ?? [];
-    const fresh = prev.filter((t) => now - t <= windowMs);
-    if (fresh.length >= maxReplies) {
-      this.autoReplyWindowByJid.set(jid, fresh);
-      return false;
-    }
-    fresh.push(now);
-    this.autoReplyWindowByJid.set(jid, fresh);
-    return true;
-  }
-
-  private async notifyHumanHandoff(params: {
-    customerNumber: string;
-    customerMessage: string;
-    reason: string;
-  }): Promise<void> {
-    if (!this.client) return;
-    const targets = new Set<string>(this.adminNumbers());
-    const fallbackAdmin = this.effectiveAdminNumber();
-    if (fallbackAdmin) targets.add(fallbackAdmin);
-    const manager = env.WHATSAPP_SALES_MANAGER_NUMBER?.replace(/\D/g, '');
-    if (manager) targets.add(manager);
-    if (targets.size === 0) return;
-
-    const text = [
-      'Atendimento humano solicitado.',
-      `Cliente: ${params.customerNumber}`,
-      `Motivo: ${params.reason}`,
-      `Mensagem: ${params.customerMessage.slice(0, 500)}`,
-      '',
-      'O bot foi pausado para este contato. Reative pelo painel quando quiser devolver para a IA.',
-    ].join('\n');
-
-    for (const target of targets) {
-      await this.client.sendMessage(`${target}@c.us`, text.slice(0, 3500));
-    }
-    console.log('[whatsapp] handoff humano notificado ao admin');
-  }
-
-  private async pauseForHumanHandoff(params: {
-    message: Message;
-    customerNumber: string;
-    customerMessage: string;
-    reason: string;
-    replyToCustomer?: boolean;
-  }): Promise<void> {
-    this.pausedByNumber.add(params.customerNumber);
-    const existing = this.recentInboundByNumber.get(params.customerNumber);
-    if (existing) {
-      this.recentInboundByNumber.set(params.customerNumber, { ...existing, paused: true });
-    }
-
-    if (params.replyToCustomer !== false) {
-      const reply = [
-        'Claro, entendi.',
-        'Me manda seu nome e o melhor horario pra gente alinhar isso com mais cuidado.',
-      ].join('\n');
-      await params.message.reply(reply);
-      this.lastBotReplyFingerprintByJid.set(params.message.from, `${params.message.from}:${reply.trim()}`);
-    }
-
-    await this.notifyHumanHandoff({
-      customerNumber: params.customerNumber,
-      customerMessage: params.customerMessage,
-      reason: params.reason,
-    });
-  }
-
   private watchImageJobForWhatsApp(params: {
     jobId: string;
     jid: string;
@@ -1104,43 +997,6 @@ class WhatsAppService {
         console.log('[whatsapp] modo manual ativo; sem resposta automática para clientes');
         return;
       }
-      if (!isAdmin && senderNumber && this.pausedByNumber.has(senderNumber)) {
-        console.log(`[whatsapp] handoff humano ativo para ${senderNumber}; sem resposta automática`);
-        return;
-      }
-      if (!isAdmin && senderNumber && this.wantsHumanAttendance(body)) {
-        await this.pauseForHumanHandoff({
-          message,
-          customerNumber: senderNumber,
-          customerMessage: body,
-          reason: 'cliente pediu atendimento humano',
-        });
-        return;
-      }
-      if (!isAdmin && !this.recordAutoReplyQuota(message.from)) {
-        if (senderNumber) {
-          await this.pauseForHumanHandoff({
-            message,
-            customerNumber: senderNumber,
-            customerMessage: body,
-            reason: 'limite de respostas automáticas atingido',
-          });
-        }
-        return;
-      }
-
-      const staticReply = env.WHATSAPP_STATIC_REPLY?.trim();
-      if (!isAdmin && staticReply) {
-        if (this.staticReplySentByJid.has(message.from)) {
-          console.log('[whatsapp] mensagem fixa já enviada para este contato; sem resposta automática');
-          return;
-        }
-        await message.reply(staticReply.slice(0, 3500));
-        this.staticReplySentByJid.add(message.from);
-        this.lastBotReplyFingerprintByJid.set(message.from, `${message.from}:${staticReply}`);
-        console.log('[whatsapp] resposta enviada (modo mensagem fixa)');
-        return;
-      }
 
       const userId = await this.resolveAgentUserId();
       if (!userId) {
@@ -1166,21 +1022,8 @@ class WhatsAppService {
       this.conversationByJid.set(message.from, flow.conversationId);
 
       const responseText = flow.assistantMessage.content.slice(0, 3500);
-      const responseFingerprint = `${message.from}:${responseText.trim()}`;
-      if (!isAdmin && this.lastBotReplyFingerprintByJid.get(message.from) === responseFingerprint) {
-        if (senderNumber) {
-          await this.pauseForHumanHandoff({
-            message,
-            customerNumber: senderNumber,
-            customerMessage: body,
-            reason: 'resposta automática repetida',
-          });
-        }
-        console.log('[whatsapp] resposta repetida detectada; handoff humano acionado');
-        return;
-      }
       await message.reply(responseText);
-      this.lastBotReplyFingerprintByJid.set(message.from, responseFingerprint);
+      this.lastBotReplyFingerprintByJid.set(message.from, `${message.from}:${responseText.trim()}`);
       console.log('[whatsapp] resposta enviada');
     } catch (error) {
       this.status.lastError =

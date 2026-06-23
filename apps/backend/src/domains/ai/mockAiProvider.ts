@@ -16,8 +16,10 @@ function isRouterMobiPrompt(messages: ChatMessage[]): boolean {
   return system.includes(MOBI_ROUTER_MARKER);
 }
 
-function forwardReply(categoryLabel: string): string {
-  return `Perfeito. Vou encaminhar você para ${categoryLabel}.`;
+const NO_HANDOFF_REPLY = 'Entendi. Como posso ajudar com isso?';
+
+function forwardReply(_categoryLabel: string): string {
+  return NO_HANDOFF_REPLY;
 }
 
 function routerOfflineReply(systemContent: string, lastUser: string): string {
@@ -25,10 +27,6 @@ function routerOfflineReply(systemContent: string, lastUser: string): string {
   const phase = readRouterPhaseFromPrompt(systemContent);
   const category = readRouterCategoryFromPrompt(systemContent);
   const text = lastUser.toLowerCase().trim();
-
-  if (phase === 'encaminhar' && category) {
-    return forwardReply(getRouterCategoryLabel(category));
-  }
 
   if (/^oi|ol[aá]|bom dia|boa tarde|boa noite/.test(text)) {
     return firstName ? `Olá, ${firstName}! Como posso ajudar?` : 'Olá! Como posso ajudar?';

@@ -64,7 +64,7 @@ export function detectRouterPhase(
   const userCount = messages.filter((m) => m.role === 'user').length;
   const assistantCount = messages.filter((m) => m.role === 'assistant').length;
 
-  if (category) return 'encaminhar';
+  if (category) return 'descobrir';
   if (userCount <= 1 && assistantCount === 0) return 'cumprimentar';
   if (assistantCount >= 1) return 'descobrir';
   return 'cumprimentar';

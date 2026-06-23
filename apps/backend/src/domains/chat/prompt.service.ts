@@ -20,7 +20,7 @@ export const MOBI_ROUTER_PROMPT = [
   'Responda em até 2 frases e 25 palavras.',
   'Não assuma o segmento da empresa.',
   'Não fale sobre marcenaria, móveis, cozinha ou orçamento, a menos que o cliente mencione isso primeiro.',
-  'Quando necessário, diga que vai encaminhar para um atendente humano.',
+  'Você é a única atendente: nunca diga que vai encaminhar, transferir, escalar ou chamar humano, equipe ou especialista.',
   'Categorias: comercial, financeiro, suporte, administrativo, geral.',
 ].join(' ');
 
@@ -56,7 +56,7 @@ export function buildRouterSystemPrompt(input: {
   const nameBit = firstName ? ` Nome: ${firstName}.` : '';
   const phaseBit = ` Fase: ${routerPhase}.`;
   const categoryBit = routerCategory
-    ? ` Categoria: ${routerCategory}. Encaminhe para ${getRouterCategoryLabel(routerCategory)}.`
+    ? ` Categoria: ${routerCategory} (${getRouterCategoryLabel(routerCategory)}). Continue atendendo você mesma.`
     : ' Categoria: indefinida.';
 
   const base = `${MOBI_ROUTER_PROMPT}${nameBit}${phaseBit}${categoryBit}`;

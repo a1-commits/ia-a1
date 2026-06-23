@@ -9,6 +9,11 @@ function tryLatin1ToUtf8(text: string): string {
   return Buffer.from(text, 'latin1').toString('utf8');
 }
 
+const HANDOFF_REPLY = 'Entendi. Como posso ajudar com isso?';
+
+const HANDOFF_PHRASE_RE =
+  /\b(vou|irei|vamos)\s+(encaminhar|transferir|passar|direcionar)\b|\b(encaminhando|transferindo)\s+(para|voc[eê])\b|\b(atendente|especialista|equipe|humano|operador|consultor)\s+(ir[aá]|entrar[aá]|continuar[aá]|atender[aá]|responder[aá])\b|\baguarde\s+(o\s+)?atendimento\b|\bnossa\s+equipe\s+(ir[aá]|vai)\b|\b(um|uma)\s+especialista\s+(ir[aá]|vai|entrar[aá])\b/i;
+
 /** Remove blocos internos que não devem aparecer na resposta ao cliente. */
 export function sanitizeAgentClientReply(text: string): string {
   let out = text.trim();
@@ -24,6 +29,9 @@ export function sanitizeAgentClientReply(text: string): string {
     })
     .join('\n')
     .trim();
+  if (HANDOFF_PHRASE_RE.test(out)) {
+    return HANDOFF_REPLY;
+  }
   return out;
 }
 
