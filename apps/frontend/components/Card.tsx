@@ -9,7 +9,7 @@ export function Card({
 }): React.ReactElement {
   return (
     <div
-      className={`rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 md:p-6 ${className}`}
+      className={`rounded-xl border border-[var(--border)] bg-white p-4 shadow-sm md:p-6 ${className}`}
     >
       {children}
     </div>

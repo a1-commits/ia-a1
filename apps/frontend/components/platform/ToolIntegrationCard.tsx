@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/Button';
 import { PlatformCard } from '@/components/platform/PlatformCard';
-import type { PlatformTool } from '@/lib/mock/platform';
+import type { PlatformTool } from '@/types/platform';
 
 export function ToolIntegrationCard({
   tool,

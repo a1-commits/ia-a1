@@ -3,12 +3,12 @@
 import { Suspense } from 'react';
 import { useParams } from 'next/navigation';
 import { AgentEditor } from '@/components/platform/AgentEditor';
-import { MOCK_AGENTS } from '@/lib/mock/platform';
+import { getAgent } from '@/lib/agents-store';
 
 function AgentDetailContent(): React.ReactElement {
   const params = useParams();
   const id = typeof params.id === 'string' ? params.id : '';
-  const agent = MOCK_AGENTS.find((a) => a.id === id);
+  const agent = getAgent(id);
   if (!agent) {
     return (
       <div className="page-shell">

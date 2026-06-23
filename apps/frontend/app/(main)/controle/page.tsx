@@ -7,9 +7,9 @@ import { Card } from '@/components/Card';
 import { api } from '@/lib/api';
 
 type AiStatus = {
-  mode: 'real' | 'mock';
-  provider: 'openai' | 'ollama' | 'mock';
-  selectedMode: 'real' | 'mock' | null;
+  mode: 'real' | 'unavailable';
+  provider: 'openai' | 'ollama' | 'none';
+  selectedMode: 'real' | null;
   strategy: 'local_only' | 'hybrid' | 'openai_only';
   localConfigured: boolean;
   label: string;
@@ -283,7 +283,7 @@ export default function ControlePage(): React.ReactElement {
             </button>
           </div>
           <p className="mt-3 text-xs text-zinc-600">
-            Modo real/mock e testes:{' '}
+            Modo da IA e testes:{' '}
             <Link href="/settings" className="text-[var(--mobi-orange)] underline-offset-2 hover:underline">
               Ajustes → IA
             </Link>

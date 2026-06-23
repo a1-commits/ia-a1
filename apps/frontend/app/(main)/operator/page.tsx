@@ -13,8 +13,8 @@ import { api } from '@/lib/api';
 type OperatorOverview = {
   updatedAt: string;
   ai: {
-    mode: 'real' | 'mock';
-    provider: 'openai' | 'ollama' | 'mock';
+    mode: 'real' | 'unavailable';
+    provider: 'openai' | 'ollama' | 'none';
     strategy: 'local_only' | 'hybrid' | 'openai_only';
     reason: string | null;
   };

@@ -2,40 +2,54 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
 import { PageHeader } from '@/components/platform/PageHeader';
 import { PlatformCard } from '@/components/platform/PlatformCard';
-import { MOCK_AGENTS, type PlatformAgent } from '@/lib/mock/platform';
+import {
+  deleteAgent,
+  duplicateAgent,
+  listAgents,
+  saveAgent,
+} from '@/lib/agents-store';
+import type { PlatformAgent } from '@/types/platform';
 
 export default function AgentesPage(): React.ReactElement {
   const router = useRouter();
-  const [agents, setAgents] = useState<PlatformAgent[]>(MOCK_AGENTS);
+  const [agents, setAgents] = useState<PlatformAgent[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  function reload(): void {
+    setAgents(listAgents());
+  }
+
+  useEffect(() => {
+    reload();
+  }, []);
 
   function showFeedback(msg: string): void {
     setFeedback(msg);
     window.setTimeout(() => setFeedback(null), 2500);
   }
 
-  function duplicateAgent(agent: PlatformAgent): void {
-    const copy: PlatformAgent = {
-      ...agent,
-      id: `${agent.id}-copy-${Date.now()}`,
-      name: `${agent.name} (cópia)`,
-      active: false,
-      contactCount: 0,
-      updatedAt: new Date().toISOString(),
-    };
-    setAgents((prev) => [...prev, copy]);
-    showFeedback(`Agente "${agent.name}" duplicado (mock).`);
+  function handleDuplicate(agent: PlatformAgent): void {
+    const copy = duplicateAgent(agent.id);
+    if (!copy) return;
+    reload();
+    showFeedback(`Agente "${agent.name}" duplicado.`);
   }
 
   function toggleAgent(agent: PlatformAgent): void {
-    setAgents((prev) =>
-      prev.map((a) => (a.id === agent.id ? { ...a, active: !a.active, updatedAt: new Date().toISOString() } : a)),
-    );
-    showFeedback(`Agente "${agent.name}" ${agent.active ? 'desativado' : 'ativado'} (mock).`);
+    saveAgent({ ...agent, active: !agent.active });
+    reload();
+    showFeedback(`Agente "${agent.name}" ${agent.active ? 'desativado' : 'ativado'}.`);
+  }
+
+  function handleDelete(agent: PlatformAgent): void {
+    deleteAgent(agent.id);
+    reload();
+    showFeedback(`Agente "${agent.name}" removido.`);
   }
 
   return (
@@ -58,6 +72,18 @@ export default function AgentesPage(): React.ReactElement {
           </div>
         )}
 
+        {agents.length === 0 && (
+          <EmptyState
+            title="Nenhum agente criado"
+            description="Crie seu primeiro agente para começar a atender contatos."
+            action={
+              <Link href="/agentes/novo">
+                <Button variant="accent">Criar primeiro agente</Button>
+              </Link>
+            }
+          />
+        )}
+
         <div className="space-y-4">
           {agents.map((agent) => (
             <PlatformCard key={agent.id}>
@@ -75,10 +101,8 @@ export default function AgentesPage(): React.ReactElement {
                       {agent.active ? 'ativo' : 'inativo'}
                     </span>
                   </div>
-                  <p className="mt-2 text-sm text-[var(--muted)]">{agent.description}</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">{agent.objective}</p>
+                  {agent.description && <p className="mt-2 text-sm text-[var(--muted)]">{agent.description}</p>}
                   <div className="mt-3 flex flex-wrap gap-4 text-xs text-[var(--muted)]">
-                    <span>{agent.contactCount} contatos</span>
                     <span>{agent.model}</span>
                     <span>{agent.toolIds.length} ferramentas</span>
                     <span>Atualizado {new Date(agent.updatedAt).toLocaleDateString('pt-BR')}</span>
@@ -90,7 +114,7 @@ export default function AgentesPage(): React.ReactElement {
                       Editar
                     </Button>
                   </Link>
-                  <Button variant="ghost" className="text-xs" onClick={() => duplicateAgent(agent)}>
+                  <Button variant="ghost" className="text-xs" onClick={() => handleDuplicate(agent)}>
                     Duplicar
                   </Button>
                   <Button
@@ -102,6 +126,13 @@ export default function AgentesPage(): React.ReactElement {
                   </Button>
                   <Button variant="ghost" className="text-xs" onClick={() => toggleAgent(agent)}>
                     {agent.active ? 'Desativar' : 'Ativar'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-xs text-[var(--moble-danger)]"
+                    onClick={() => handleDelete(agent)}
+                  >
+                    Excluir
                   </Button>
                 </div>
               </div>

@@ -5,7 +5,7 @@ import {
   generateAssistantReply,
   getAiRuntimeStatus,
   setAiManualMode,
-  type AiRuntimeMode,
+  type AiManualMode,
   setAiRoutingStrategy,
   type AiRoutingStrategy,
   saveAiRuntimePreference,
@@ -17,48 +17,42 @@ export const aiRouter = Router();
 
 aiRouter.use(authMiddleware);
 
+function aiStatusLabel(provider: ReturnType<typeof getAiRuntimeStatus>['provider']): string {
+  if (provider === 'openai') return 'IA REAL ATIVA';
+  if (provider === 'ollama') return 'IA LOCAL (OLLAMA) ATIVA';
+  return 'IA INDISPONÍVEL';
+}
+
 aiRouter.get('/status', async (req, res, next) => {
   try {
     await syncAiRuntimePreference(req.userId!);
-  const status = getAiRuntimeStatus();
-  const label =
-    status.provider === 'openai'
-      ? 'IA REAL ATIVA'
-      : status.provider === 'ollama'
-        ? 'IA LOCAL (OLLAMA) ATIVA'
-        : 'MODO SIMULAÇÃO (sem crédito OpenAI)';
-  res.json({ ...status, label });
+    const status = getAiRuntimeStatus();
+    res.json({ ...status, label: aiStatusLabel(status.provider) });
   } catch (e) {
     next(e);
   }
 });
 
 const setModeSchema = z.object({
-  mode: z.enum(['real', 'mock', 'auto']),
+  mode: z.enum(['real', 'auto']),
 });
 
 aiRouter.post('/mode', async (req, res, next) => {
   try {
-  const parsed = setModeSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Body inválido. Use mode: "real" | "mock" | "auto"' });
-    return;
-  }
-  const wanted = parsed.data.mode;
-  const next = wanted === 'auto' ? null : (wanted as AiRuntimeMode);
-  const status = setAiManualMode(next);
-  await saveAiRuntimePreference({
-    userId: req.userId!,
-    mode: next,
-    strategy: status.strategy,
-  });
-  const label =
-    status.provider === 'openai'
-      ? 'IA REAL ATIVA'
-      : status.provider === 'ollama'
-        ? 'IA LOCAL (OLLAMA) ATIVA'
-        : 'MODO SIMULAÇÃO (sem crédito OpenAI)';
-  res.json({ ...status, label });
+    const parsed = setModeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Body inválido. Use mode: "real" | "auto"' });
+      return;
+    }
+    const wanted = parsed.data.mode;
+    const nextMode: AiManualMode = wanted === 'auto' ? null : 'real';
+    const status = setAiManualMode(nextMode);
+    await saveAiRuntimePreference({
+      userId: req.userId!,
+      mode: nextMode,
+      strategy: status.strategy,
+    });
+    res.json({ ...status, label: aiStatusLabel(status.provider) });
   } catch (e) {
     next(e);
   }
@@ -70,26 +64,19 @@ const setStrategySchema = z.object({
 
 aiRouter.post('/strategy', async (req, res, next) => {
   try {
-  const parsed = setStrategySchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Body inválido. Use strategy: local_only | hybrid | openai_only' });
-    return;
-  }
-  // Ao escolher estratégia no painel, removemos override manual para a escolha surtir efeito imediato.
-  setAiManualMode(null);
-  const status = setAiRoutingStrategy(parsed.data.strategy as AiRoutingStrategy);
-  await saveAiRuntimePreference({
-    userId: req.userId!,
-    mode: null,
-    strategy: status.strategy,
-  });
-  const label =
-    status.provider === 'openai'
-      ? 'IA REAL ATIVA'
-      : status.provider === 'ollama'
-        ? 'IA LOCAL (OLLAMA) ATIVA'
-        : 'MODO SIMULAÇÃO (sem crédito OpenAI)';
-  res.json({ ...status, label });
+    const parsed = setStrategySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Body inválido. Use strategy: local_only | hybrid | openai_only' });
+      return;
+    }
+    setAiManualMode(null);
+    const status = setAiRoutingStrategy(parsed.data.strategy as AiRoutingStrategy);
+    await saveAiRuntimePreference({
+      userId: req.userId!,
+      mode: null,
+      strategy: status.strategy,
+    });
+    res.json({ ...status, label: aiStatusLabel(status.provider) });
   } catch (e) {
     next(e);
   }

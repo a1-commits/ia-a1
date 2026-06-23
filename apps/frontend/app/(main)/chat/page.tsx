@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { Conversation, Message } from '@/types/models';
 
 type ChatResponse = {
@@ -14,8 +14,8 @@ type ChatResponse = {
 };
 
 type AiStatus = {
-  mode: 'real' | 'mock';
-  label: 'IA REAL ATIVA' | 'MODO SIMULAÇÃO (sem crédito OpenAI)';
+  mode: 'real' | 'unavailable';
+  label: string;
   reason: string | null;
 };
 
@@ -38,7 +38,7 @@ function ConversationList({
 }): React.ReactElement {
   return (
     <>
-      <label className="mb-3 flex cursor-pointer items-center gap-2 text-[11px] text-zinc-500">
+      <label className="mb-3 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--muted)]">
         <input
           type="checkbox"
           checked={includeArchived}
@@ -47,28 +47,28 @@ function ConversationList({
         />
         Mostrar arquivadas
       </label>
-      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Conversas</div>
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">Conversas</div>
       <div className="flex-1 space-y-1 overflow-y-auto">
-        {loadingList && <div className="text-xs text-zinc-500">Carregando…</div>}
+        {loadingList && <div className="text-xs text-[var(--muted)]">Carregando…</div>}
         {!loadingList && conversations.length === 0 && (
-          <div className="text-xs text-zinc-500">Nenhuma conversa ainda.</div>
+          <div className="text-xs text-[var(--muted)]">Nenhuma conversa ainda.</div>
         )}
         {conversations.map((c) => (
           <div
             key={c.id}
             className={`flex items-start gap-1 rounded-xl px-2 py-1 transition ${
-              activeId === c.id ? 'bg-white/10' : 'hover:bg-white/5'
+              activeId === c.id ? 'bg-[var(--hover)]' : 'hover:bg-[var(--moble-light-gray)]'
             }`}
           >
             <button
               type="button"
               onClick={() => onSelect(c.id)}
               className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-xs transition ${
-                activeId === c.id ? 'text-white' : 'text-zinc-400'
+                activeId === c.id ? 'font-medium text-[var(--primary)]' : 'text-[var(--fg)]'
               }`}
             >
               <div className="line-clamp-2">{c.title ?? 'Conversa'}</div>
-              <div className="text-[10px] text-zinc-600">
+              <div className="text-[10px] text-[var(--muted)]">
                 {c.context}
                 {c.pinned ? ' · fixada' : ''}
                 {c.archived ? ' · arquivo' : ''}
@@ -78,7 +78,7 @@ function ConversationList({
               type="button"
               title={c.pinned ? 'Desafixar' : 'Fixar'}
               onClick={(e) => onTogglePin(c, e)}
-              className="shrink-0 rounded-lg px-2 py-2 text-[10px] text-zinc-500 hover:bg-black/5 hover:text-zinc-800"
+              className="shrink-0 rounded-lg px-2 py-2 text-[10px] text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--primary)]"
             >
               {c.pinned ? '★' : '☆'}
             </button>
@@ -100,6 +100,7 @@ export default function ChatPage(): React.ReactElement {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const loadConversations = useCallback(async () => {
@@ -164,6 +165,7 @@ export default function ChatPage(): React.ReactElement {
     e.preventDefault();
     if (!canSend) return;
     setSending(true);
+    setSendError(null);
     try {
       const res = await api<ChatResponse>('/api/chat/message', {
         method: 'POST',
@@ -179,7 +181,7 @@ export default function ChatPage(): React.ReactElement {
       await loadConversations();
       await loadAiStatus();
     } catch (err) {
-      console.error(err);
+      setSendError(err instanceof ApiError ? err.message : 'Falha ao enviar mensagem');
     } finally {
       setSending(false);
     }
@@ -211,7 +213,7 @@ export default function ChatPage(): React.ReactElement {
 
   return (
     <div className="flex min-h-screen flex-col md:h-[100dvh]">
-      <header className="border-b border-[var(--moble-border)] bg-white/72 px-4 py-4 backdrop-blur md:px-8">
+      <header className="border-b border-[var(--moble-border)] bg-white px-4 py-4 md:px-8">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="eyebrow">Central inteligente</div>
@@ -222,8 +224,8 @@ export default function ChatPage(): React.ReactElement {
                 {aiStatus.label}
               </Badge>
             )}
-            {aiStatus?.reason && aiStatus.mode === 'mock' && (
-              <p className="mt-1 text-[11px] text-zinc-500">{aiStatus.reason}</p>
+            {aiStatus?.reason && aiStatus.mode === 'unavailable' && (
+              <p className="mt-1 text-[11px] text-[var(--muted)]">{aiStatus.reason}</p>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -253,8 +255,8 @@ export default function ChatPage(): React.ReactElement {
             aria-label="Fechar lista"
             onClick={() => setSheetOpen(false)}
           />
-          <div className="fixed bottom-0 left-0 right-0 z-50 flex max-h-[72vh] flex-col rounded-t-2xl border border-black/10 bg-[var(--panel)] p-4 shadow-2xl md:hidden">
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/10" />
+          <div className="fixed bottom-0 left-0 right-0 z-50 flex max-h-[72vh] flex-col rounded-t-2xl border border-[var(--border)] bg-white p-4 shadow-2xl md:hidden">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]" />
             <ConversationList
               conversations={conversations}
               activeId={activeId}
@@ -269,7 +271,7 @@ export default function ChatPage(): React.ReactElement {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 pb-[max(7rem,env(safe-area-inset-bottom))] pt-4 md:flex-row md:px-8 md:pb-8">
-        <aside className="hidden w-72 shrink-0 flex-col rounded-[22px] border border-[var(--moble-border)] bg-white/86 p-4 text-sm shadow-[0_8px_30px_rgba(14,14,14,0.04)] md:flex">
+        <aside className="hidden w-72 shrink-0 flex-col rounded-xl border border-[var(--moble-border)] bg-white p-4 text-sm shadow-sm md:flex">
           <ConversationList
             conversations={conversations}
             activeId={activeId}
@@ -281,9 +283,9 @@ export default function ChatPage(): React.ReactElement {
           />
         </aside>
 
-        <section className="flex min-h-0 flex-1 flex-col rounded-[22px] border border-[var(--moble-border)] bg-white/92 shadow-[0_8px_30px_rgba(14,14,14,0.04)]">
+        <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-[var(--moble-border)] bg-white shadow-sm">
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-            {loadingMsgs && <div className="text-sm text-zinc-500">Carregando mensagens…</div>}
+            {loadingMsgs && <div className="text-sm text-[var(--muted)]">Carregando mensagens…</div>}
             {!loadingMsgs && messages.length === 0 && (
               <EmptyState title="Nenhuma mensagem ainda" description="Envie uma mensagem para iniciar a conversa com a Mobi." />
             )}
@@ -295,18 +297,22 @@ export default function ChatPage(): React.ReactElement {
                 <div
                   className={`max-w-[min(100%,28rem)] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     m.role === 'USER'
-                      ? 'bg-[var(--moble-black)] text-white'
-                      : 'border border-[var(--moble-border)] bg-[var(--moble-bg)]/70 text-[var(--moble-black)]'
+                      ? 'bg-[var(--primary)] text-white'
+                      : 'border border-[var(--moble-border)] bg-[var(--moble-bg)] text-[var(--fg)]'
                   }`}
                 >
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-white/60">
+                  <div
+                    className={`mb-1 text-[10px] uppercase tracking-wide ${
+                      m.role === 'USER' ? 'text-white/80' : 'text-[var(--muted)]'
+                    }`}
+                  >
                     {m.role === 'USER' ? 'Cliente / Você' : 'MOBI'}
                   </div>
                   <div className="whitespace-pre-wrap break-words">{m.content}</div>
                 </div>
               </div>
             ))}
-            {sending && <div className="text-xs text-zinc-500">O agente está respondendo…</div>}
+            {sending && <div className="text-xs text-[var(--muted)]">O agente está respondendo…</div>}
             <div ref={bottomRef} />
           </div>
 
@@ -314,6 +320,9 @@ export default function ChatPage(): React.ReactElement {
             onSubmit={(e) => void handleSend(e)}
             className="border-t border-[var(--moble-border)] p-3 md:p-4"
           >
+            {sendError && (
+              <p className="mb-2 text-xs text-[var(--moble-danger)]">{sendError}</p>
+            )}
             <div className="flex gap-2">
               <input
                 value={input}

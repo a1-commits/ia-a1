@@ -4,7 +4,7 @@ import { getRouterCategoryLabel } from './router.service';
 
 export type AgentPromptChannel = 'web' | 'whatsapp_customer' | 'whatsapp_admin';
 
-/** Marcador interno (mock offline). */
+/** Marcador interno do prompt router. */
 export const MOBI_ROUTER_MARKER = 'Você é Mobi, recepcionista virtual.';
 
 export const ROUTER_HISTORY_MESSAGES = 4;

@@ -2,7 +2,7 @@
 
 import { Suspense } from 'react';
 import { AgentEditor } from '@/components/platform/AgentEditor';
-import { createEmptyAgent } from '@/lib/mock/platform';
+import { createEmptyAgent } from '@/lib/agents-store';
 
 export default function NovoAgentePage(): React.ReactElement {
   return (

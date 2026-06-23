@@ -9,9 +9,9 @@ import { api } from '@/lib/api';
 
 type AiTest = { configured: boolean; reply: string };
 type AiStatus = {
-  mode: 'real' | 'mock';
-  provider: 'openai' | 'ollama' | 'mock';
-  selectedMode: 'real' | 'mock' | null;
+  mode: 'real' | 'unavailable';
+  provider: 'openai' | 'ollama' | 'none';
+  selectedMode: 'real' | null;
   strategy: 'local_only' | 'hybrid' | 'openai_only';
   localConfigured: boolean;
   label: string;
@@ -204,7 +204,7 @@ export default function SettingsPage(): React.ReactElement {
     })();
   }, []);
 
-  async function updateAiMode(mode: 'real' | 'mock' | 'auto'): Promise<void> {
+  async function updateAiMode(mode: 'real' | 'auto'): Promise<void> {
     setSwitchingMode(true);
     setErr(null);
     try {
@@ -760,18 +760,6 @@ export default function SettingsPage(): React.ReactElement {
               </button>
               <button
                 type="button"
-                onClick={() => void updateAiMode('mock')}
-                disabled={switchingMode}
-                className={`rounded-md border px-2.5 py-1 text-xs ${
-                  aiStatus.selectedMode === 'mock'
-                    ? 'border-[var(--mobi-orange)]/50 bg-[var(--mobi-orange)]/12 text-[var(--mobi-graphite)]'
-                    : 'border-black/10 bg-white text-zinc-700'
-                }`}
-              >
-                Modo mock
-              </button>
-              <button
-                type="button"
                 onClick={() => void updateAiMode('auto')}
                 disabled={switchingMode}
                 className={`rounded-md border px-2.5 py-1 text-xs ${
@@ -833,7 +821,7 @@ export default function SettingsPage(): React.ReactElement {
               <p className="text-zinc-400">
                 Chave configurada no servidor:{' '}
                 <span className="text-[var(--mobi-orange)]">
-                  {ai.configured ? 'sim' : 'não (modo offline / resposta mock)'}
+                  {ai.configured ? 'sim' : 'não (configure OPENAI_API_KEY ou Ollama)'}
                 </span>
               </p>
               <p className="rounded-xl border border-black/10 bg-zinc-50 p-3 text-xs text-zinc-700 whitespace-pre-wrap">

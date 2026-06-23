@@ -2,16 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/Button';
 import { FormField } from '@/components/platform/FormField';
 import { PageHeader } from '@/components/platform/PageHeader';
 import { PlatformCard } from '@/components/platform/PlatformCard';
-import {
-  MOCK_TOOLS,
-  type AgentTab,
-  type PlatformAgent,
-} from '@/lib/mock/platform';
+import { saveAgent } from '@/lib/agents-store';
+import { api } from '@/lib/api';
+import { fetchPlatformTools } from '@/lib/integrations-hub';
+import { TOOL_CATALOG, type AgentTab, type PlatformAgent, type PlatformTool } from '@/types/platform';
 
 const TABS: { id: AgentTab; label: string }[] = [
   { id: 'perfil', label: 'Perfil' },
@@ -34,9 +33,30 @@ export function AgentEditor({
   const activeTab = TABS.some((t) => t.id === tabParam) ? tabParam! : 'perfil';
 
   const [agent, setAgent] = useState<PlatformAgent>(initialAgent);
+  const [tools, setTools] = useState<PlatformTool[]>([]);
   const [saved, setSaved] = useState(false);
   const [testInput, setTestInput] = useState('');
   const [testReply, setTestReply] = useState<string | null>(null);
+  const [testBusy, setTestBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchPlatformTools().then(setTools);
+  }, []);
+
+  useEffect(() => {
+    void api<{ provider: string }>('/api/ai/status')
+      .then((status) => {
+        const model =
+          status.provider === 'ollama'
+            ? 'Qwen / Ollama'
+            : status.provider === 'openai'
+              ? 'OpenAI'
+              : 'Indisponível';
+        setAgent((prev) => (prev.model === 'Qwen / Ollama' || isNew ? { ...prev, model } : prev));
+      })
+      .catch(() => undefined);
+  }, [isNew]);
 
   function setTab(tab: AgentTab): void {
     const params = new URLSearchParams(searchParams.toString());
@@ -44,9 +64,20 @@ export function AgentEditor({
     router.replace(`${pathname}?${params.toString()}`);
   }
 
-  function save(): void {
+  function persist(): PlatformAgent | null {
+    setError(null);
+    if (!agent.name.trim()) {
+      setError('Informe o nome do agente.');
+      return null;
+    }
+    const savedAgent = saveAgent(agent);
+    setAgent(savedAgent);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2500);
+    if (isNew) {
+      router.replace(`/agentes/${savedAgent.id}`);
+    }
+    return savedAgent;
   }
 
   function toggleTool(toolId: string): void {
@@ -58,18 +89,32 @@ export function AgentEditor({
     }));
   }
 
-  function runTest(): void {
+  async function runTest(): Promise<void> {
     const msg = testInput.trim();
     if (!msg) return;
-    setTestReply(`[${agent.name}] Entendi. Como posso ajudar com isso? (mock)`);
+    setTestBusy(true);
+    setTestReply(null);
+    try {
+      const res = await api<{ assistantMessage: { content: string } }>('/api/chat/message', {
+        method: 'POST',
+        body: JSON.stringify({ content: msg, context: 'GERAL' }),
+      });
+      setTestReply(res.assistantMessage.content);
+    } catch (err) {
+      setTestReply(err instanceof Error ? err.message : 'Falha ao testar agente.');
+    } finally {
+      setTestBusy(false);
+    }
   }
+
+  const catalog = tools.length > 0 ? tools : TOOL_CATALOG.map((t) => ({ ...t, connected: false, lastSync: null }));
 
   return (
     <div className="page-shell">
       <div className="page-container max-w-4xl">
         <PageHeader
           eyebrow="Agente"
-          title={isNew ? 'Novo agente' : agent.name}
+          title={isNew ? 'Novo agente' : agent.name || 'Agente'}
           description="Configure perfil, treinamento, ferramentas e teste o agente."
           actions={
             <Link href="/agentes">
@@ -82,7 +127,12 @@ export function AgentEditor({
 
         {saved && (
           <div className="mb-4 rounded-lg border border-[var(--success)]/30 bg-[var(--success)]/10 px-4 py-2 text-sm">
-            Agente salvo (mock).
+            Agente salvo.
+          </div>
+        )}
+        {error && (
+          <div className="mb-4 rounded-lg border border-[var(--moble-danger)]/30 bg-[var(--moble-danger)]/10 px-4 py-2 text-sm">
+            {error}
           </div>
         )}
 
@@ -116,15 +166,7 @@ export function AgentEditor({
               <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Modelo
               </span>
-              <select
-                value={agent.model}
-                onChange={(e) => setAgent({ ...agent, model: e.target.value })}
-                className="premium-input"
-              >
-                <option value="Qwen / Ollama">Qwen / Ollama</option>
-                <option value="OpenAI">OpenAI</option>
-                <option value="Simulação">Simulação</option>
-              </select>
+              <input value={agent.model} readOnly className="premium-input bg-[var(--hover)]" />
             </label>
             <label className="flex items-center gap-3">
               <input
@@ -135,7 +177,7 @@ export function AgentEditor({
               />
               <span className="text-sm text-[var(--fg)]">Agente ativo</span>
             </label>
-            <Button variant="accent" onClick={save}>
+            <Button variant="accent" onClick={() => persist()}>
               Salvar perfil
             </Button>
           </PlatformCard>
@@ -166,7 +208,7 @@ export function AgentEditor({
               onChange={(v) => setAgent({ ...agent, exampleAnswers: v })}
               rows={4}
             />
-            <Button variant="accent" onClick={save}>
+            <Button variant="accent" onClick={() => persist()}>
               Salvar treinamento
             </Button>
           </PlatformCard>
@@ -174,10 +216,21 @@ export function AgentEditor({
 
         {activeTab === 'ferramentas' && (
           <div className="space-y-3">
-            {MOCK_TOOLS.map((tool) => (
+            {catalog.map((tool) => (
               <PlatformCard key={tool.id} className="flex items-center justify-between gap-4">
                 <div>
-                  <div className="font-medium text-[var(--fg)]">{tool.name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium text-[var(--fg)]">{tool.name}</div>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] ${
+                        tool.connected
+                          ? 'bg-[var(--success)]/15 text-[var(--success)]'
+                          : 'bg-[var(--hover)] text-[var(--muted)]'
+                      }`}
+                    >
+                      {tool.connected ? 'conectado' : 'não conectado'}
+                    </span>
+                  </div>
                   <div className="text-sm text-[var(--muted)]">{tool.description}</div>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
@@ -190,7 +243,7 @@ export function AgentEditor({
                 </label>
               </PlatformCard>
             ))}
-            <Button variant="accent" onClick={save}>
+            <Button variant="accent" onClick={() => persist()}>
               Salvar ferramentas
             </Button>
           </div>
@@ -199,7 +252,7 @@ export function AgentEditor({
         {activeTab === 'teste' && (
           <PlatformCard className="space-y-4">
             <p className="text-sm text-[var(--muted)]">
-              Simule uma mensagem para testar o comportamento do agente (mock).
+              Envie uma mensagem real para testar a IA configurada no servidor.
             </p>
             <div className="flex gap-2">
               <input
@@ -208,11 +261,11 @@ export function AgentEditor({
                 placeholder="Digite uma mensagem de teste…"
                 className="premium-input flex-1"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') runTest();
+                  if (e.key === 'Enter') void runTest();
                 }}
               />
-              <Button variant="accent" onClick={runTest}>
-                Enviar
+              <Button variant="accent" onClick={() => void runTest()} disabled={testBusy}>
+                {testBusy ? 'Enviando…' : 'Enviar'}
               </Button>
             </div>
             {testReply && (

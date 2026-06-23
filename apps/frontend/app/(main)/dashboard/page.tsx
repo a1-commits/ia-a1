@@ -3,16 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PageHeader } from '@/components/platform/PageHeader';
 import { PlatformMetricCard } from '@/components/platform/PlatformMetricCard';
+import { countActiveAgents, countAgents } from '@/lib/agents-store';
 import { api } from '@/lib/api';
-import {
-  MOCK_AGENTS,
-  connectedToolsCount,
-  contactsWithAgentCount,
-} from '@/lib/mock/platform';
+import { countContactsWithAgent } from '@/lib/contacts-store';
+import { countConnectedTools } from '@/lib/integrations-hub';
 
 type HubOverview = {
   ai: {
-    provider: 'openai' | 'ollama' | 'mock';
+    provider: 'openai' | 'ollama' | 'none';
   };
   whatsapp: {
     status: {
@@ -28,12 +26,16 @@ type HubOverview = {
 function formatModel(provider: string): string {
   if (provider === 'ollama') return 'Qwen / Ollama';
   if (provider === 'openai') return 'OpenAI';
-  return 'Simulação';
+  return 'Indisponível';
 }
 
 export default function DashboardPage(): React.ReactElement {
   const [data, setData] = useState<HubOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [agentCount, setAgentCount] = useState(0);
+  const [activeAgentCount, setActiveAgentCount] = useState(0);
+  const [contactsWithAgent, setContactsWithAgent] = useState(0);
+  const [connectedTools, setConnectedTools] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,9 +44,16 @@ export default function DashboardPage(): React.ReactElement {
       setData(res);
     } catch {
       setData(null);
-    } finally {
-      setLoading(false);
     }
+    setAgentCount(countAgents());
+    setActiveAgentCount(countActiveAgents());
+    setContactsWithAgent(countContactsWithAgent());
+    try {
+      setConnectedTools(await countConnectedTools());
+    } catch {
+      setConnectedTools(0);
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -63,13 +72,13 @@ export default function DashboardPage(): React.ReactElement {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <PlatformMetricCard
             label="Agentes criados"
-            value={loading ? '…' : MOCK_AGENTS.length}
-            hint={`${MOCK_AGENTS.filter((a) => a.active).length} ativos`}
+            value={loading ? '…' : agentCount}
+            hint={`${activeAgentCount} ativos`}
             tone="primary"
           />
           <PlatformMetricCard
             label="Contatos com agente"
-            value={loading ? '…' : contactsWithAgentCount()}
+            value={loading ? '…' : contactsWithAgent}
             hint="Atribuição explícita"
           />
           <PlatformMetricCard
@@ -83,18 +92,18 @@ export default function DashboardPage(): React.ReactElement {
           />
           <PlatformMetricCard
             label="WhatsApp conectado"
-            value={loading ? '…' : data?.whatsapp.status.connected ? 'Sim' : 'Não'}
-            tone={data?.whatsapp.status.connected ? 'success' : 'neutral'}
+            value={loading ? '…' : data?.whatsapp?.status?.connected ? 'Sim' : 'Não'}
+            tone={data?.whatsapp?.status?.connected ? 'success' : 'neutral'}
           />
           <PlatformMetricCard
             label="Modelo local ativo"
-            value={loading ? '…' : formatModel(data?.ai.provider ?? 'mock')}
+            value={loading ? '…' : formatModel(data?.ai.provider ?? 'none')}
             tone="primary"
           />
           <PlatformMetricCard
             label="Ferramentas conectadas"
-            value={loading ? '…' : connectedToolsCount()}
-            hint="Integrações ativas"
+            value={loading ? '…' : connectedTools}
+            hint="WhatsApp, Olist e outras"
             tone="success"
           />
         </div>

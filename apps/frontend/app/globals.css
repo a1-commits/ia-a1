@@ -1,35 +1,36 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #0f1115;
-  --card: #171a21;
-  --hover: #202532;
-  --primary: #4f8cff;
-  --success: #22c55e;
-  --fg: #f8fafc;
-  --muted: #94a3b8;
-  --border: #252a35;
+  --bg: #f4f8ff;
+  --card: #ffffff;
+  --hover: #eff6ff;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --success: #16a34a;
+  --fg: #0f172a;
+  --muted: #475569;
+  --border: #dbeafe;
 
-  --moble-black: #f8fafc;
-  --moble-dark: #171a21;
-  --moble-gray: #94a3b8;
-  --moble-muted: #94a3b8;
-  --moble-bg: #0f1115;
-  --moble-card: #171a21;
-  --moble-light-gray: #202532;
-  --moble-white: #171a21;
-  --moble-accent: #4f8cff;
-  --moble-accent-soft: rgba(79, 140, 255, 0.16);
-  --moble-border: #252a35;
-  --moble-success: #22c55e;
-  --moble-warning: #f59e0b;
-  --moble-danger: #ef4444;
+  --moble-black: #0f172a;
+  --moble-dark: #1e293b;
+  --moble-gray: #64748b;
+  --moble-muted: #64748b;
+  --moble-bg: #f8fafc;
+  --moble-card: #ffffff;
+  --moble-light-gray: #f1f5f9;
+  --moble-white: #ffffff;
+  --moble-accent: #2563eb;
+  --moble-accent-soft: rgba(37, 99, 235, 0.12);
+  --moble-border: #e2e8f0;
+  --moble-success: #16a34a;
+  --moble-warning: #d97706;
+  --moble-danger: #dc2626;
 
   --panel: var(--card);
   --mobi-orange: var(--primary);
   --mobi-graphite: var(--fg);
   --accent: var(--primary);
-  --accent-soft: rgba(79, 140, 255, 0.16);
+  --accent-soft: rgba(37, 99, 235, 0.12);
 }
 
 @theme inline {
@@ -55,12 +56,11 @@ a {
   color: white;
   border-radius: 10px;
   font-weight: 600;
-  transition: background-color 0.18s ease, transform 0.18s ease;
+  transition: background-color 0.18s ease;
 }
 
 .brand-btn:hover {
-  background: #3b7af0;
-  transform: translateY(-1px);
+  background: var(--primary-dark);
 }
 
 .brand-link {
@@ -72,11 +72,13 @@ a {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.06);
 }
 
 .page-shell {
   min-height: 100vh;
   padding: 24px 16px;
+  background: var(--bg);
 }
 
 .page-container {
@@ -92,7 +94,7 @@ a {
 .eyebrow {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--primary);
 }
@@ -104,8 +106,8 @@ a {
 .premium-input {
   width: 100%;
   border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--hover);
+  border: 1px solid var(--moble-border);
+  background: #ffffff;
   color: var(--fg);
   padding: 10px 12px;
   font-size: 14px;
@@ -115,11 +117,11 @@ a {
 
 .premium-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.2);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
 .premium-input::placeholder {
-  color: var(--muted);
+  color: #94a3b8;
 }
 
 .premium-button {
@@ -129,12 +131,11 @@ a {
   padding: 10px 14px;
   font-size: 14px;
   font-weight: 600;
-  transition: background-color 0.18s ease, transform 0.18s ease;
+  transition: background-color 0.18s ease;
 }
 
 .premium-button:hover:not(:disabled) {
-  background: #3b7af0;
-  transform: translateY(-1px);
+  background: var(--primary-dark);
 }
 
 .premium-button-accent {
@@ -143,13 +144,15 @@ a {
 }
 
 .premium-button-ghost {
-  background: transparent;
+  background: #ffffff;
   color: var(--fg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--moble-border);
 }
 
 .premium-button-ghost:hover:not(:disabled) {
   background: var(--hover);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .premium-badge {
@@ -166,7 +169,7 @@ a {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #171a21, #202532, #171a21);
+  background: linear-gradient(90deg, #f1f5f9, #ffffff, #f1f5f9);
   background-size: 200% 100%;
   animation: skeleton-loading 1.3s ease-in-out infinite;
 }
@@ -187,15 +190,16 @@ a {
 }
 
 button {
-  transition: transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 input,
 select,
 textarea {
   border-radius: 10px;
-  border-color: var(--border);
+  border-color: var(--moble-border);
   color: var(--fg);
+  background: #ffffff;
 }
 
 h1,
@@ -203,6 +207,7 @@ h2,
 h3 {
   font-weight: 600;
   letter-spacing: -0.03em;
+  color: var(--fg);
 }
 
 ::selection {

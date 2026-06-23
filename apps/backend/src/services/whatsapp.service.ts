@@ -544,7 +544,7 @@ class WhatsAppService {
         }),
       ]);
       const now = new Date();
-      const aiLabel = ai.provider === 'openai' ? 'OpenAI' : ai.provider === 'ollama' ? 'Ollama' : 'Mock';
+      const aiLabel = ai.provider === 'openai' ? 'OpenAI' : ai.provider === 'ollama' ? 'Ollama' : 'Indisponível';
       const waMode = wa.autoReplyMode === 'agent' ? 'agente' : 'manual';
       const oneDriveStatus = oneDrive?.status ?? 'desconectado';
       const priorities =

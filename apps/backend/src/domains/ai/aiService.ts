@@ -1,13 +1,12 @@
-import { createMockAiProvider } from './mockAiProvider';
 import { createOpenAiProvider } from './openAiProvider';
 import { createOllamaProvider } from './ollamaProvider';
 import type { AiProvider, ChatMessage } from './aiProvider.types';
 import { env, isOpenAiConfigured } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 
-export type AiRuntimeMode = 'real' | 'mock';
-export type AiManualMode = AiRuntimeMode | null;
-export type AiProviderUsed = 'openai' | 'ollama' | 'mock';
+export type AiRuntimeMode = 'real' | 'unavailable';
+export type AiManualMode = 'real' | null;
+export type AiProviderUsed = 'openai' | 'ollama' | 'none';
 export type AiRoutingStrategy = 'local_only' | 'hybrid' | 'openai_only';
 
 export type AiRuntimeStatus = {
@@ -21,6 +20,15 @@ export type AiRuntimeStatus = {
   updatedAt: string;
 };
 
+export class AiUnavailableError extends Error {
+  status = 503;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AiUnavailableError';
+  }
+}
+
 let manualMode: AiManualMode = null;
 let routingStrategy: AiRoutingStrategy = 'local_only';
 let lastSyncedUserId: string | null = null;
@@ -32,8 +40,8 @@ const AI_SETTING_STRATEGY_KEY = 'AI_ROUTING_STRATEGY';
 let runtimeStatus: AiRuntimeStatus = {
   configured: isOpenAiConfigured(),
   localConfigured: Boolean(env.OLLAMA_ENABLED),
-  mode: 'mock',
-  provider: 'mock',
+  mode: 'unavailable',
+  provider: 'none',
   selectedMode: manualMode,
   strategy: routingStrategy,
   reason: 'Inicializando provedor de IA',
@@ -53,11 +61,15 @@ function setStatus(mode: AiRuntimeMode, provider: AiProviderUsed, reason: string
   };
 }
 
-function getProviders(): { openAi: AiProvider | null; ollama: AiProvider | null; mock: AiProvider } {
+function failUnavailable(reason: string): never {
+  setStatus('unavailable', 'none', reason);
+  throw new AiUnavailableError(reason);
+}
+
+function getProviders(): { openAi: AiProvider | null; ollama: AiProvider | null } {
   return {
     openAi: createOpenAiProvider(),
     ollama: createOllamaProvider(),
-    mock: createMockAiProvider(),
   };
 }
 
@@ -96,10 +108,6 @@ export function getAiRuntimeStatus(): AiRuntimeStatus {
 
 export function setAiManualMode(nextMode: AiManualMode): AiRuntimeStatus {
   manualMode = nextMode;
-  if (manualMode === 'mock') {
-    setStatus('mock', 'mock', 'Modo manual: simulação forçada');
-    return runtimeStatus;
-  }
   if (manualMode === 'real') {
     if (isOpenAiConfigured()) {
       setStatus('real', 'openai', 'Modo manual: OpenAI forçada');
@@ -109,15 +117,17 @@ export function setAiManualMode(nextMode: AiManualMode): AiRuntimeStatus {
       setStatus('real', 'ollama', 'Modo manual: Ollama (OpenAI indisponível)');
       return runtimeStatus;
     }
-    setStatus('mock', 'mock', 'Modo real solicitado, mas nenhum provedor disponível');
+    setStatus('unavailable', 'none', 'Modo real solicitado, mas nenhum provedor disponível');
     return runtimeStatus;
   }
   if (routingStrategy === 'local_only' && env.OLLAMA_ENABLED) {
     setStatus('real', 'ollama', null);
   } else if (isOpenAiConfigured()) {
     setStatus('real', 'openai', null);
+  } else if (env.OLLAMA_ENABLED) {
+    setStatus('real', 'ollama', null);
   } else {
-    setStatus('mock', 'mock', 'Sem provedor disponível (OpenAI/Ollama)');
+    setStatus('unavailable', 'none', 'Sem provedor disponível (OpenAI/Ollama)');
   }
   return runtimeStatus;
 }
@@ -126,13 +136,21 @@ export function setAiRoutingStrategy(next: AiRoutingStrategy): AiRuntimeStatus {
   routingStrategy = next;
   if (manualMode === null) {
     if (next === 'local_only') {
-      setStatus(env.OLLAMA_ENABLED ? 'real' : 'mock', env.OLLAMA_ENABLED ? 'ollama' : 'mock', env.OLLAMA_ENABLED ? null : 'Ollama desativado/indisponível');
+      setStatus(
+        env.OLLAMA_ENABLED ? 'real' : 'unavailable',
+        env.OLLAMA_ENABLED ? 'ollama' : 'none',
+        env.OLLAMA_ENABLED ? null : 'Ollama desativado/indisponível',
+      );
     } else if (next === 'openai_only') {
-      setStatus(isOpenAiConfigured() ? 'real' : 'mock', isOpenAiConfigured() ? 'openai' : 'mock', isOpenAiConfigured() ? null : 'OPENAI_API_KEY ausente');
+      setStatus(
+        isOpenAiConfigured() ? 'real' : 'unavailable',
+        isOpenAiConfigured() ? 'openai' : 'none',
+        isOpenAiConfigured() ? null : 'OPENAI_API_KEY ausente',
+      );
     } else {
       setStatus(
-        env.OLLAMA_ENABLED || isOpenAiConfigured() ? 'real' : 'mock',
-        env.OLLAMA_ENABLED ? 'ollama' : isOpenAiConfigured() ? 'openai' : 'mock',
+        env.OLLAMA_ENABLED || isOpenAiConfigured() ? 'real' : 'unavailable',
+        env.OLLAMA_ENABLED ? 'ollama' : isOpenAiConfigured() ? 'openai' : 'none',
         env.OLLAMA_ENABLED || isOpenAiConfigured() ? null : 'Sem provedor disponível (OpenAI/Ollama)',
       );
     }
@@ -174,7 +192,7 @@ export async function syncAiRuntimePreference(userId: string): Promise<AiRuntime
   });
   const modeRaw = items.find((x) => x.key === AI_SETTING_MODE_KEY)?.value ?? null;
   const strategyRaw = items.find((x) => x.key === AI_SETTING_STRATEGY_KEY)?.value ?? null;
-  const mode: AiManualMode = modeRaw === 'real' || modeRaw === 'mock' ? modeRaw : null;
+  const mode: AiManualMode = modeRaw === 'real' ? 'real' : null;
   const strategy: AiRoutingStrategy =
     strategyRaw === 'openai_only' || strategyRaw === 'hybrid' || strategyRaw === 'local_only'
       ? strategyRaw
@@ -192,11 +210,7 @@ export async function syncAiRuntimePreference(userId: string): Promise<AiRuntime
 }
 
 export async function generateAssistantReply(messages: ChatMessage[]): Promise<string> {
-  const { openAi, ollama, mock } = getProviders();
-  if (manualMode === 'mock') {
-    setStatus('mock', 'mock', 'Modo manual: simulação forçada');
-    return mock.complete(messages);
-  }
+  const { openAi, ollama } = getProviders();
 
   if (manualMode === 'real') {
     if (openAi) {
@@ -211,16 +225,12 @@ export async function generateAssistantReply(messages: ChatMessage[]): Promise<s
             setStatus('real', 'ollama', `Fallback local após falha OpenAI: ${explainOpenAiError(error)}`);
             return localReply;
           } catch (localError) {
-            setStatus(
-              'mock',
-              'mock',
+            failUnavailable(
               `Falha OpenAI (${explainOpenAiError(error)}) e Ollama (${explainOllamaError(localError)})`,
             );
-            return mock.complete(messages);
           }
         }
-        setStatus('mock', 'mock', `Modo real manual com fallback: ${explainOpenAiError(error)}`);
-        return mock.complete(messages);
+        failUnavailable(`Modo real manual: ${explainOpenAiError(error)}`);
       }
     }
     if (ollama) {
@@ -229,12 +239,10 @@ export async function generateAssistantReply(messages: ChatMessage[]): Promise<s
         setStatus('real', 'ollama', 'Modo manual: Ollama (OpenAI indisponível)');
         return reply;
       } catch (error) {
-        setStatus('mock', 'mock', explainOllamaError(error));
-        return mock.complete(messages);
+        failUnavailable(explainOllamaError(error));
       }
     }
-    setStatus('mock', 'mock', 'Modo real solicitado, mas nenhum provedor disponível');
-    return mock.complete(messages);
+    failUnavailable('Modo real solicitado, mas nenhum provedor disponível');
   }
 
   if (routingStrategy === 'openai_only') {
@@ -245,12 +253,10 @@ export async function generateAssistantReply(messages: ChatMessage[]): Promise<s
           setStatus('real', 'ollama', 'OPENAI_API_KEY ausente; usando Ollama');
           return reply;
         } catch (error) {
-          setStatus('mock', 'mock', explainOllamaError(error));
-          return mock.complete(messages);
+          failUnavailable(explainOllamaError(error));
         }
       }
-      setStatus('mock', 'mock', 'OPENAI_API_KEY ausente');
-      return mock.complete(messages);
+      failUnavailable('OPENAI_API_KEY ausente');
     }
     try {
       const reply = await openAi.complete(messages);
@@ -263,35 +269,28 @@ export async function generateAssistantReply(messages: ChatMessage[]): Promise<s
           setStatus('real', 'ollama', `Fallback local após falha OpenAI: ${explainOpenAiError(error)}`);
           return localReply;
         } catch (localError) {
-          setStatus(
-            'mock',
-            'mock',
+          failUnavailable(
             `Falha OpenAI (${explainOpenAiError(error)}) e Ollama (${explainOllamaError(localError)})`,
           );
-          return mock.complete(messages);
         }
       }
-      setStatus('mock', 'mock', explainOpenAiError(error));
-      return mock.complete(messages);
+      failUnavailable(explainOpenAiError(error));
     }
   }
 
   if (routingStrategy === 'local_only') {
     if (!ollama) {
-      setStatus('mock', 'mock', 'Ollama desativado/indisponível');
-      return mock.complete(messages);
+      failUnavailable('Ollama desativado/indisponível');
     }
     try {
       const reply = await ollama.complete(messages);
       setStatus('real', 'ollama', null);
       return reply;
     } catch (error) {
-      setStatus('mock', 'mock', explainOllamaError(error));
-      return mock.complete(messages);
+      failUnavailable(explainOllamaError(error));
     }
   }
 
-  // hybrid: usa Ollama por padrão e escala para OpenAI quando a pergunta parecer complexa.
   const escalate = shouldEscalateToOpenAi(messages);
   if (escalate && openAi) {
     try {
@@ -305,16 +304,12 @@ export async function generateAssistantReply(messages: ChatMessage[]): Promise<s
           setStatus('real', 'ollama', `Fallback local após falha OpenAI: ${explainOpenAiError(error)}`);
           return localReply;
         } catch (localError) {
-          setStatus(
-            'mock',
-            'mock',
+          failUnavailable(
             `Falha OpenAI (${explainOpenAiError(error)}) e Ollama (${explainOllamaError(localError)})`,
           );
-          return mock.complete(messages);
         }
       }
-      setStatus('mock', 'mock', explainOpenAiError(error));
-      return mock.complete(messages);
+      failUnavailable(explainOpenAiError(error));
     }
   }
 
@@ -330,16 +325,12 @@ export async function generateAssistantReply(messages: ChatMessage[]): Promise<s
           setStatus('real', 'openai', `Fallback OpenAI após falha Ollama: ${explainOllamaError(error)}`);
           return paidReply;
         } catch (paidError) {
-          setStatus(
-            'mock',
-            'mock',
+          failUnavailable(
             `Falha Ollama (${explainOllamaError(error)}) e OpenAI (${explainOpenAiError(paidError)})`,
           );
-          return mock.complete(messages);
         }
       }
-      setStatus('mock', 'mock', explainOllamaError(error));
-      return mock.complete(messages);
+      failUnavailable(explainOllamaError(error));
     }
   }
 
@@ -349,11 +340,9 @@ export async function generateAssistantReply(messages: ChatMessage[]): Promise<s
       setStatus('real', 'openai', 'Ollama indisponível; usando OpenAI');
       return paidReply;
     } catch (error) {
-      setStatus('mock', 'mock', explainOpenAiError(error));
-      return mock.complete(messages);
+      failUnavailable(explainOpenAiError(error));
     }
   }
 
-  setStatus('mock', 'mock', 'Sem provedor disponível (OpenAI/Ollama)');
-  return mock.complete(messages);
+  failUnavailable('Sem provedor disponível (OpenAI/Ollama)');
 }
