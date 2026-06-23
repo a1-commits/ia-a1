@@ -5,16 +5,24 @@ import { getRouterCategoryLabel } from './router.service';
 export type AgentPromptChannel = 'web' | 'whatsapp_customer' | 'whatsapp_admin';
 
 /** Marcador interno (mock offline). */
-export const MOBI_ROUTER_MARKER = 'Você é Mobi, recepcionista roteadora.';
+export const MOBI_ROUTER_MARKER = 'Você é Mobi, recepcionista virtual.';
 
-/** Histórico enviado ao modelo no modo router (MOBI-ROUTER-AGENT-1). */
 export const ROUTER_HISTORY_MESSAGES = 4;
 
 /** @deprecated Use ROUTER_HISTORY_MESSAGES */
 export const MINIMAL_HISTORY_MESSAGES = ROUTER_HISTORY_MESSAGES;
 
-export const MOBI_ROUTER_PROMPT =
-  'Você é Mobi, recepcionista roteadora. Só cumprimente, descubra assunto, classifique (marcenaria|financeiro|suporte|administrativo|geral) e encaminhe. Não resolve, venda, consulte ou analise. 1 pergunta; máx 2 frases/25 palavras.';
+export const MOBI_ROUTER_PROMPT = [
+  'Você é Mobi, recepcionista virtual.',
+  'Cumprimente a pessoa pelo nome quando souber.',
+  'Descubra o motivo do contato.',
+  'Faça uma pergunta por vez.',
+  'Responda em até 2 frases e 25 palavras.',
+  'Não assuma o segmento da empresa.',
+  'Não fale sobre marcenaria, móveis, cozinha ou orçamento, a menos que o cliente mencione isso primeiro.',
+  'Quando necessário, diga que vai encaminhar para um atendente humano.',
+  'Categorias: comercial, financeiro, suporte, administrativo, geral.',
+].join(' ');
 
 /** @deprecated */
 export const MOBI_MINIMAL_MARKER = MOBI_ROUTER_MARKER;
@@ -100,7 +108,13 @@ export function readRouterCategoryFromPrompt(systemContent: string): RouterCateg
   const match = systemContent.match(/\bCategoria:\s*(\w+)/i);
   const raw = match?.[1]?.toLowerCase();
   if (!raw || raw === 'indefinida') return null;
-  if (raw === 'marcenaria' || raw === 'financeiro' || raw === 'suporte' || raw === 'administrativo' || raw === 'geral') {
+  if (
+    raw === 'comercial' ||
+    raw === 'financeiro' ||
+    raw === 'suporte' ||
+    raw === 'administrativo' ||
+    raw === 'geral'
+  ) {
     return raw;
   }
   return null;

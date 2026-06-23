@@ -1,11 +1,11 @@
 import type { ChatMessage } from '../ai/aiProvider.types';
 
-export type RouterCategory = 'marcenaria' | 'financeiro' | 'suporte' | 'administrativo' | 'geral';
+export type RouterCategory = 'comercial' | 'financeiro' | 'suporte' | 'administrativo' | 'geral';
 
 export type RouterPhase = 'cumprimentar' | 'descobrir' | 'encaminhar';
 
 const CATEGORY_LABEL: Record<RouterCategory, string> = {
-  marcenaria: 'marcenaria',
+  comercial: 'atendimento comercial',
   financeiro: 'financeiro',
   suporte: 'suporte',
   administrativo: 'administrativo',
@@ -23,7 +23,7 @@ function normalize(text: string): string {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-/** Classificação leve por palavras-chave — sem LLM, sem lead score. */
+/** Classificação leve por palavras-chave — sem LLM, sem nicho de mercado. */
 export function classifyConversationCategory(text: string): RouterCategory | null {
   const s = normalize(text.trim());
   if (!s) return null;
@@ -32,10 +32,7 @@ export function classifyConversationCategory(text: string): RouterCategory | nul
     /^(oi|ola|bom dia|boa tarde|boa noite|e ai|tudo bem)[!.?\s]*$/.test(s) || s.length < 12;
   if (isGreetingOnly) return null;
 
-  if (/movel|moveis|marcenaria|cozinha|armario|planejado|guarda.?roupa|closet|estante|bancada|projeto/.test(s)) {
-    return 'marcenaria';
-  }
-  if (/pagamento|pagar|receber|boleto|financeiro|fatura|parcela|nota fiscal|pix|cobranca|duvida sobre pagamento/.test(s)) {
+  if (/pagamento|pagar|receber|boleto|financeiro|fatura|parcela|nota fiscal|pix|cobranca/.test(s)) {
     return 'financeiro';
   }
   if (/acesso|sistema|login|senha|nao consigo|erro|suporte|bug|aplicativo|site/.test(s)) {
@@ -43,6 +40,9 @@ export function classifyConversationCategory(text: string): RouterCategory | nul
   }
   if (/administrativo|contrato|documento|rh|interno|cadastro/.test(s)) {
     return 'administrativo';
+  }
+  if (/comercial|compra|venda|produto|servico|proposta|cotacao|negocio|empresa|parceria/.test(s)) {
+    return 'comercial';
   }
 
   if (s.length >= 15) return 'geral';

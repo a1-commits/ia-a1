@@ -16,33 +16,36 @@ function isRouterMobiPrompt(messages: ChatMessage[]): boolean {
   return system.includes(MOBI_ROUTER_MARKER);
 }
 
+function forwardReply(categoryLabel: string): string {
+  return `Perfeito. Vou encaminhar você para ${categoryLabel}.`;
+}
+
 function routerOfflineReply(systemContent: string, lastUser: string): string {
   const firstName = readContactFirstNameFromPrompt(systemContent);
   const phase = readRouterPhaseFromPrompt(systemContent);
   const category = readRouterCategoryFromPrompt(systemContent);
-  const text = lastUser.toLowerCase();
+  const text = lastUser.toLowerCase().trim();
 
   if (phase === 'encaminhar' && category) {
-    const label = getRouterCategoryLabel(category);
-    return `Perfeito. Vou direcionar você para nosso especialista em ${label}.`;
+    return forwardReply(getRouterCategoryLabel(category));
   }
 
-  if (/^oi|ol[aá]|bom dia|boa tarde|boa noite/.test(text.trim())) {
+  if (/^oi|ol[aá]|bom dia|boa tarde|boa noite/.test(text)) {
     return firstName ? `Olá, ${firstName}! Como posso ajudar?` : 'Olá! Como posso ajudar?';
   }
 
-  if (/movel|moveis|planejado|marcenaria|cozinha/.test(text)) {
-    return 'Perfeito. Vou direcionar você para nosso especialista em marcenaria.';
-  }
   if (/pagamento|financeiro|boleto|pagar/.test(text)) {
-    return 'Perfeito. Vou direcionar você para nosso especialista em financeiro.';
+    return forwardReply('atendimento financeiro');
   }
   if (/acesso|sistema|login|senha|suporte/.test(text)) {
-    return 'Perfeito. Vou direcionar você para nosso especialista em suporte.';
+    return forwardReply('suporte');
+  }
+  if (/comercial|compra|venda|produto|servico|proposta|cotacao/.test(text)) {
+    return forwardReply('atendimento comercial');
   }
 
   if (phase === 'descobrir' || text.length > 3) {
-    return 'Você pode me explicar melhor o que precisa?';
+    return 'Como posso ajudar?';
   }
 
   return firstName ? `Olá, ${firstName}! Como posso ajudar?` : 'Olá! Como posso ajudar?';
