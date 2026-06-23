@@ -139,6 +139,13 @@ export default function AgentesPage(): React.ReactElement {
                       Editar
                     </Button>
                   </Link>
+                  {agent.name.trim().toLowerCase().includes('pera') && (
+                    <Link href={`/agentes/${agent.id}/integrations/bling`}>
+                      <Button variant="accent" className="text-xs">
+                        Bling
+                      </Button>
+                    </Link>
+                  )}
                   <Button variant="ghost" className="text-xs" onClick={() => void handleDuplicate(agent)}>
                     Duplicar
                   </Button>

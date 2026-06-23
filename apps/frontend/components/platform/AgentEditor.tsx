@@ -19,6 +19,14 @@ const TABS: { id: AgentTab; label: string }[] = [
   { id: 'teste', label: 'Teste' },
 ];
 
+function isPeraAgent(name: string): boolean {
+  return name.trim().toLowerCase().includes('pera');
+}
+
+function blingIntegrationHref(agentId: string): string {
+  return `/agentes/${agentId}/integrations/bling`;
+}
+
 export function AgentEditor({
   initialAgent,
   isNew,
@@ -118,6 +126,8 @@ export function AgentEditor({
   }
 
   const catalog = tools.length > 0 ? tools : TOOL_CATALOG.map((t) => ({ ...t, connected: false, lastSync: null }));
+  const showBlingSetup = !isNew && Boolean(agent.id);
+  const peraAgent = isPeraAgent(agent.name);
 
   return (
     <div className="page-shell">
@@ -127,11 +137,20 @@ export function AgentEditor({
           title={isNew ? 'Novo agente' : agent.name || 'Agente'}
           description="Configure perfil, treinamento, ferramentas e teste o agente."
           actions={
-            <Link href="/agentes">
-              <Button variant="ghost" className="text-xs">
-                Voltar
-              </Button>
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              {showBlingSetup && (
+                <Link href={blingIntegrationHref(agent.id)}>
+                  <Button variant="accent" className="text-xs">
+                    Configurar Bling
+                  </Button>
+                </Link>
+              )}
+              <Link href="/agentes">
+                <Button variant="ghost" className="text-xs">
+                  Voltar
+                </Button>
+              </Link>
+            </div>
           }
         />
 
@@ -144,6 +163,26 @@ export function AgentEditor({
           <div className="mb-4 rounded-lg border border-[var(--moble-danger)]/30 bg-[var(--moble-danger)]/10 px-4 py-2 text-sm">
             {error}
           </div>
+        )}
+
+        {showBlingSetup && (
+          <PlatformCard className="mb-4 border-[var(--primary)]/40 bg-[var(--primary)]/5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="font-medium text-[var(--fg)]">
+                  Integração Bling{peraAgent ? ' — PERA' : ''}
+                </div>
+                <div className="text-sm text-[var(--muted)]">
+                  Conecte até 4 lojas Bling para consulta de estoque por código de barras.
+                </div>
+              </div>
+              <Link href={blingIntegrationHref(agent.id)}>
+                <Button variant="accent" className="text-xs">
+                  Configurar Bling
+                </Button>
+              </Link>
+            </div>
+          </PlatformCard>
         )}
 
         <div className="mb-6 flex flex-wrap gap-2 border-b border-[var(--border)] pb-1">
@@ -226,15 +265,15 @@ export function AgentEditor({
 
         {activeTab === 'ferramentas' && (
           <div className="space-y-3">
-            {!isNew && (
-              <PlatformCard className="flex items-center justify-between gap-4">
+            {showBlingSetup && (
+              <PlatformCard className="flex items-center justify-between gap-4 border-[var(--primary)]/30">
                 <div>
                   <div className="font-medium text-[var(--fg)]">Bling (multi-lojas)</div>
                   <div className="text-sm text-[var(--muted)]">
-                    Configure até 4 contas Bling para consulta de estoque por código de barras.
+                    OAuth, credenciais e teste de conexão por loja.
                   </div>
                 </div>
-                <Link href={`/agentes/${agent.id}/integrations/bling`}>
+                <Link href={blingIntegrationHref(agent.id)}>
                   <Button variant="accent" className="text-xs">
                     Configurar Bling
                   </Button>
