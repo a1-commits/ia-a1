@@ -27,6 +27,21 @@ export function sanitizeAgentClientReply(text: string): string {
   return out;
 }
 
+/** Limita resposta ao formato recepcionista (2 frases, 25 palavras). */
+export function clampMinimalReply(text: string): string {
+  let out = text.replace(/\s+/g, ' ').trim();
+  const parts = out.match(/[^.!?]+[.!?]?/g) ?? [out];
+  out = parts
+    .slice(0, 2)
+    .join(' ')
+    .trim();
+  const words = out.split(/\s+/).filter(Boolean);
+  if (words.length > 25) {
+    out = `${words.slice(0, 25).join(' ')}…`;
+  }
+  return out;
+}
+
 /** Tenta corrigir texto com acentuação quebrada (mojibake). */
 export function repairBrokenAccents(text: string): string {
   let best = text;

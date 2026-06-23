@@ -25,7 +25,7 @@ const envSchema = z.object({
     .transform((v) => v !== 'false'),
   OLLAMA_BASE_URL: z.string().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('llama3.1:8b'),
-  /** RESET-CEREBRO: agente simples (sem lead score, handoff auto, contexto pesado). */
+  /** MOBI-MINIMAL-AGENT-1: recepcionista minimal (legado; fluxo sempre minimal). */
   MOBI_SIMPLE_AGENT: z
     .string()
     .optional()

@@ -8,7 +8,6 @@ import { Client, LocalAuth, MessageMedia, type Message } from 'whatsapp-web.js';
 import { env, isOpenAiConfigured } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { processAgentMessage } from '../domains/chat/chatAgentFlow.service';
-import { shouldHandoffToSalesManager } from '../domains/sales/handoff.service';
 import { getAiRuntimeStatus } from '../domains/ai/aiService';
 import {
   parseFinanceEntryMessage,
@@ -1183,16 +1182,6 @@ class WhatsAppService {
       await message.reply(responseText);
       this.lastBotReplyFingerprintByJid.set(message.from, responseFingerprint);
       console.log('[whatsapp] resposta enviada');
-      if (!isAdmin && flow.agentMeta.imageJob) {
-        this.watchImageJobForWhatsApp({ jobId: flow.agentMeta.imageJob.id, jid: message.from });
-      }
-      if (!isAdmin && senderNumber && shouldHandoffToSalesManager(responseText)) {
-        await this.notifySalesManager({
-          customerNumber: senderNumber,
-          customerMessage: body,
-          agentReply: responseText,
-        });
-      }
     } catch (error) {
       this.status.lastError =
         error instanceof Error ? `falha no processamento da mensagem: ${error.message}` : 'erro interno';

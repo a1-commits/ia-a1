@@ -1,6 +1,6 @@
 import type { AiProvider, ChatMessage } from './aiProvider.types';
 import {
-  AGENT_NEUTRAL_MARKER,
+  MOBI_MINIMAL_MARKER,
   readContactFirstNameFromPrompt,
 } from '../chat/prompt.service';
 
@@ -8,17 +8,24 @@ function lastUserMessage(messages: ChatMessage[]): string {
   return messages.filter((m) => m.role === 'user').pop()?.content ?? '';
 }
 
-function isNeutralAgentPrompt(messages: ChatMessage[]): boolean {
+function isMinimalMobiPrompt(messages: ChatMessage[]): boolean {
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
-  return system.includes(AGENT_NEUTRAL_MARKER);
+  return system.includes(MOBI_MINIMAL_MARKER);
 }
 
-function neutralOfflineReply(systemContent: string): string {
+function minimalOfflineReply(systemContent: string, lastUser: string): string {
   const firstName = readContactFirstNameFromPrompt(systemContent);
-  if (firstName) {
-    return `Olá, ${firstName}! Como posso ajudar?`;
+  const text = lastUser.toLowerCase();
+  if (/^oi|ol[aá]|bom dia|boa tarde|boa noite/.test(text.trim())) {
+    return firstName ? `Olá, ${firstName}! Como posso ajudar?` : 'Olá! Como posso ajudar?';
   }
-  return 'Olá! Como posso ajudar?';
+  if (/projeto/.test(text)) {
+    return 'Perfeito. Qual ambiente você deseja projetar?';
+  }
+  if (/cozinha|quarto|sala|banheiro|closet/.test(text)) {
+    return 'Ótimo. Você já possui medidas do ambiente?';
+  }
+  return firstName ? `Olá, ${firstName}! Como posso ajudar?` : 'Olá! Como posso ajudar?';
 }
 
 export function createMockAiProvider(): AiProvider {
@@ -26,8 +33,8 @@ export function createMockAiProvider(): AiProvider {
     async complete(messages: ChatMessage[]): Promise<string> {
       const last = lastUserMessage(messages);
       const system = messages.find((m) => m.role === 'system')?.content ?? '';
-      if (isNeutralAgentPrompt(messages)) {
-        return neutralOfflineReply(system);
+      if (isMinimalMobiPrompt(messages)) {
+        return minimalOfflineReply(system, last);
       }
       return (
         `Recebi sua mensagem: "${last.slice(0, 500)}${last.length > 500 ? '…' : ''}"\n\n` +
