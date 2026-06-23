@@ -4,12 +4,22 @@ import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { decryptSecret, encryptSecret, maskSecret } from '../../lib/secretCrypto';
 import {
-  findExactBarcodeProduct,
+  findExactGtinProduct,
+  findExactSkuProduct,
   logBarcodeSearch,
   logMultiBarcodeAggregateResult,
   logStockSearchAssociation,
   summarizeProductForBarcodeLog,
 } from './blingBarcode';
+import {
+  buildGtinSearchPaths,
+  buildNameSearchPath,
+  buildSkuSearchPath,
+  collectGtinFields,
+  dedupeProductOptions,
+  summarizeProductOption,
+  type BlingProductOption,
+} from './blingProductSearch';
 import {
   assertBarcodeResultsOrder,
   computeStockSituation,
@@ -388,28 +398,26 @@ type BlingProduct = {
   nome?: string;
   codigo?: string;
   gtin?: string;
+  gtinEmbalagem?: string;
   codigoBarras?: string | Record<string, unknown>;
   ean?: string;
   barcode?: string;
   estoque?: { saldoVirtualTotal?: number; minimo?: number; saldoFisicoTotal?: number };
 };
 
-async function findProductByBarcode(token: string, barcode: string): Promise<BlingProduct | null> {
-  const queries = [
-    `/produtos?pagina=1&limite=50&codigoBarras=${encodeURIComponent(barcode)}`,
-    `/produtos?pagina=1&limite=50&gtin=${encodeURIComponent(barcode)}`,
-    `/produtos?pagina=1&limite=50&codigo=${encodeURIComponent(barcode)}`,
-  ];
+export type BlingProductQueryMode = 'gtin' | 'sku';
 
-  for (const path of queries) {
+async function findProductByGtinEan(token: string, gtin: string): Promise<BlingProduct | null> {
+  for (const path of buildGtinSearchPaths(gtin)) {
     const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
     if (!res.ok) continue;
 
     const items = res.data.data ?? [];
-    const match = findExactBarcodeProduct(items, barcode);
+    const match = findExactGtinProduct(items, gtin);
     logBarcodeSearch({
-      searchedBarcode: barcode,
+      searchedBarcode: gtin,
       queryPath: path.split('?')[0] ?? path,
+      queryType: 'gtin',
       candidateCount: items.length,
       firstCandidate: items[0] ? summarizeProductForBarcodeLog(items[0]) : null,
       matched: Boolean(match),
@@ -418,13 +426,84 @@ async function findProductByBarcode(token: string, barcode: string): Promise<Bli
   }
 
   logBarcodeSearch({
-    searchedBarcode: barcode,
+    searchedBarcode: gtin,
     queryPath: '/produtos',
+    queryType: 'gtin',
     candidateCount: 0,
     firstCandidate: null,
     matched: false,
   });
   return null;
+}
+
+async function findProductBySku(token: string, sku: string): Promise<BlingProduct | null> {
+  const path = buildSkuSearchPath(sku);
+  const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
+  if (!res.ok) {
+    logBarcodeSearch({
+      searchedBarcode: sku,
+      queryPath: '/produtos',
+      queryType: 'sku',
+      candidateCount: 0,
+      firstCandidate: null,
+      matched: false,
+    });
+    return null;
+  }
+
+  const items = res.data.data ?? [];
+  const match = findExactSkuProduct(items, sku);
+  logBarcodeSearch({
+    searchedBarcode: sku,
+    queryPath: '/produtos',
+    queryType: 'sku',
+    candidateCount: items.length,
+    firstCandidate: items[0] ? summarizeProductForBarcodeLog(items[0]) : null,
+    matched: Boolean(match),
+  });
+  return match;
+}
+
+async function findProductsByName(token: string, name: string): Promise<BlingProduct[]> {
+  const path = buildNameSearchPath(name);
+  const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
+  if (!res.ok) {
+    logBarcodeSearch({
+      searchedBarcode: name,
+      queryPath: '/produtos',
+      queryType: 'name',
+      candidateCount: 0,
+      firstCandidate: null,
+      matched: false,
+    });
+    return [];
+  }
+
+  const items = res.data.data ?? [];
+  logBarcodeSearch({
+    searchedBarcode: name,
+    queryPath: '/produtos',
+    queryType: 'name',
+    candidateCount: items.length,
+    firstCandidate: items[0] ? summarizeProductForBarcodeLog(items[0]) : null,
+    matched: items.length > 0,
+  });
+  return items;
+}
+
+async function findProductByQuery(
+  token: string,
+  query: string,
+  mode: BlingProductQueryMode,
+): Promise<BlingProduct | null> {
+  if (mode === 'sku') return findProductBySku(token, query);
+  return findProductByGtinEan(token, query);
+}
+
+function resolveDisplayGtin(product: BlingProduct, searched: string, mode: BlingProductQueryMode): string {
+  const gtinFields = collectGtinFields(product);
+  if (gtinFields.length > 0) return gtinFields[0]!;
+  return mode === 'gtin' ? searched : searched;
 }
 
 async function blingFetch<T>(
@@ -466,18 +545,27 @@ async function fetchStockForProduct(token: string, productId: number): Promise<{
   return { currentStock: 0, minimumStock: 0 };
 }
 
+export async function searchStockByProductQuery(
+  connectionId: string,
+  query: string,
+  mode: BlingProductQueryMode = 'gtin',
+): Promise<BlingStockStoreResult> {
+  return runSerializedForConnection(connectionId, () =>
+    searchStockByProductQueryImpl(connectionId, query, mode),
+  );
+}
+
 export async function searchStockByBarcode(
   connectionId: string,
   barcode: string,
 ): Promise<BlingStockStoreResult> {
-  return runSerializedForConnection(connectionId, () =>
-    searchStockByBarcodeImpl(connectionId, barcode),
-  );
+  return searchStockByProductQuery(connectionId, barcode, 'gtin');
 }
 
-async function searchStockByBarcodeImpl(
+async function searchStockByProductQueryImpl(
   connectionId: string,
-  barcode: string,
+  query: string,
+  mode: BlingProductQueryMode,
 ): Promise<BlingStockStoreResult> {
   const row = await prisma.blingConnection.findUnique({ where: { id: connectionId } });
   if (!row) {
@@ -487,7 +575,7 @@ async function searchStockByBarcodeImpl(
       found: false,
       productName: null,
       internalCode: null,
-      barcode,
+      barcode: query,
       currentStock: null,
       minimumStock: null,
       situation: 'ERRO_CONSULTA',
@@ -503,7 +591,7 @@ async function searchStockByBarcodeImpl(
       found: false,
       productName: null,
       internalCode: null,
-      barcode,
+      barcode: query,
       currentStock: null,
       minimumStock: null,
       situation: 'ERRO_CONSULTA',
@@ -512,7 +600,7 @@ async function searchStockByBarcodeImpl(
   }
 
   try {
-    const product = await findProductByBarcode(tokenResult.token, barcode);
+    const product = await findProductByQuery(tokenResult.token, query, mode);
     if (!product?.id) {
       return {
         connectionId,
@@ -520,7 +608,7 @@ async function searchStockByBarcodeImpl(
         found: false,
         productName: null,
         internalCode: null,
-        barcode,
+        barcode: query,
         currentStock: null,
         minimumStock: null,
         situation: 'NAO_ENCONTRADO',
@@ -545,13 +633,15 @@ async function searchStockByBarcodeImpl(
       data: { lastSyncAt: new Date(), status: BlingConnectionStatus.CONNECTED, lastError: null },
     });
 
+    const displayGtin = resolveDisplayGtin(product, query, mode);
+
     return {
       connectionId,
       storeLabel: row.storeLabel,
       found: true,
       productName: product.nome ?? null,
       internalCode: product.codigo ?? String(product.id),
-      barcode,
+      barcode: displayGtin,
       currentStock,
       minimumStock,
       situation,
@@ -569,7 +659,7 @@ async function searchStockByBarcodeImpl(
       found: false,
       productName: null,
       internalCode: null,
-      barcode,
+      barcode: query,
       currentStock: null,
       minimumStock: null,
       situation: 'ERRO_CONSULTA',
@@ -624,6 +714,7 @@ export async function aggregateStockForAgent(input: {
   userId: string;
   agentId: string;
   barcodes: string[];
+  queryMode?: BlingProductQueryMode;
 }): Promise<BlingMultiStoreStockResponse> {
   await assertAgentOwnership(input.userId, input.agentId);
   const connections = await prisma.blingConnection.findMany({
@@ -641,10 +732,11 @@ export async function aggregateStockForAgent(input: {
     status: c.status,
   }));
 
+  const queryMode = input.queryMode ?? 'gtin';
   const { uniqueBarcodes, results } = await collectStockResultsForBarcodes({
     barcodes: input.barcodes,
     connections,
-    searchStock: searchStockByBarcode,
+    searchStock: (connectionId, token) => searchStockByProductQuery(connectionId, token, queryMode),
   });
 
   return {
@@ -653,6 +745,37 @@ export async function aggregateStockForAgent(input: {
     stores: storeMeta,
     results,
   };
+}
+
+export async function findProductOptionsByNameForAgent(input: {
+  userId: string;
+  agentId: string;
+  nameQuery: string;
+}): Promise<BlingProductOption[]> {
+  await assertAgentOwnership(input.userId, input.agentId);
+  const connections = await prisma.blingConnection.findMany({
+    where: {
+      userId: input.userId,
+      agentId: input.agentId,
+      isActive: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const options: BlingProductOption[] = [];
+
+  for (const connection of connections) {
+    const tokenResult = await getValidAccessToken(connection.id);
+    if (!tokenResult.ok) continue;
+
+    const products = await findProductsByName(tokenResult.token, input.nameQuery);
+    for (const product of products) {
+      const option = summarizeProductOption(product);
+      if (option) options.push(option);
+    }
+  }
+
+  return dedupeProductOptions(options);
 }
 
 export async function testBlingConnection(userId: string, connectionId: string): Promise<{ ok: boolean; message: string }> {

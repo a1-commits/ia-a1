@@ -1,5 +1,6 @@
 import { ContextType, Prisma, type Agent, type Contact, type Conversation } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { normalizePhone } from '../contacts/contact.utils';
 import type { AgentPromptChannel } from './prompt.service';
 
 export type ConversationChannel = 'internal' | 'whatsapp' | 'whatsapp_admin' | 'agent_test';
@@ -226,15 +227,57 @@ export function mapConversationIdentityMeta(
   };
 }
 
+export function canReuseConversationForContact(input: {
+  conversationContactId: string | null;
+  expectedContactId: string | null;
+}): boolean {
+  if (!input.expectedContactId) return true;
+  if (input.conversationContactId === null) return false;
+  return input.conversationContactId === input.expectedContactId;
+}
+
+export function canUpdateConversationContactId(input: {
+  conversationContactId: string | null;
+  expectedContactId: string | null;
+}): boolean {
+  if (!input.expectedContactId) return false;
+  if (input.conversationContactId === null) return true;
+  return input.conversationContactId === input.expectedContactId;
+}
+
+export function resolveLinkedConversationId(input: {
+  linkedConversationId: string | null | undefined;
+  linkedConversationContactId: string | null | undefined;
+  expectedContactId: string | null;
+}): string | null {
+  if (!input.linkedConversationId) return null;
+  if (
+    !canReuseConversationForContact({
+      conversationContactId: input.linkedConversationContactId ?? null,
+      expectedContactId: input.expectedContactId,
+    })
+  ) {
+    return null;
+  }
+  return input.linkedConversationId;
+}
+
+export function buildContactConversationScopeKey(
+  userId: string,
+  contactId: string,
+  channel: ConversationChannel,
+): string {
+  return `${userId}:${contactId}:${channel}`;
+}
+
 async function resolveContactWithBinding(input: {
   userId: string;
   phone?: string | null;
   whatsappId?: string | null;
 }): Promise<ConversationWithRelations['contact']> {
-  const phoneDigits = input.phone?.replace(/\D/g, '') ?? '';
-  const orConditions: Array<{ phone: { contains: string } } | { whatsappId: string }> = [];
-  if (phoneDigits.length >= 8) {
-    orConditions.push({ phone: { contains: phoneDigits.slice(-11) } });
+  const orConditions: Array<{ phone: string } | { whatsappId: string }> = [];
+  if (input.phone?.trim()) {
+    orConditions.push({ phone: normalizePhone(input.phone.trim()) });
   }
   if (input.whatsappId) {
     orConditions.push({ whatsappId: input.whatsappId });
@@ -283,7 +326,13 @@ export async function findOrCreateConversation(input: {
       where: { id: input.conversationId, userId: input.userId },
       include: conversationInclude,
     });
-    if (existing) {
+    if (
+      existing &&
+      canReuseConversationForContact({
+        conversationContactId: existing.contactId,
+        expectedContactId: input.contactId ?? null,
+      })
+    ) {
       return alignConversationBoundAgent(existing, input.agentId ?? null);
     }
   }
@@ -413,9 +462,14 @@ export async function prepareConversationForMessage(input: {
         userId: input.userId,
         archived: false,
       },
-      select: { id: true },
+      select: { id: true, contactId: true },
     });
-    if (linked) conversationId = linked.id;
+    conversationId =
+      resolveLinkedConversationId({
+        linkedConversationId: linked?.id,
+        linkedConversationContactId: linked?.contactId,
+        expectedContactId: contactId,
+      }) ?? undefined;
   }
 
   return findOrCreateConversation({
@@ -451,6 +505,17 @@ export async function syncConversationAfterTurn(input: {
     agentName: input.agent.name,
   });
 
+  const current = await prisma.conversation.findFirst({
+    where: { id: input.conversationId, userId: input.userId },
+    select: { contactId: true },
+  });
+  const safeContactId = canUpdateConversationContactId({
+    conversationContactId: current?.contactId ?? null,
+    expectedContactId: input.contactId ?? null,
+  })
+    ? input.contactId
+    : undefined;
+
   const updated = await prisma.conversation.update({
     where: { id: input.conversationId },
     data: {
@@ -459,7 +524,7 @@ export async function syncConversationAfterTurn(input: {
       lastMessagePreview: preview,
       title: title.slice(0, 240),
       agentId: input.agent.id,
-      ...(input.contactId ? { contactId: input.contactId } : {}),
+      ...(safeContactId ? { contactId: safeContactId } : {}),
       ...(input.contactIdentifier ? { contactIdentifier: input.contactIdentifier } : {}),
     },
     include: conversationInclude,

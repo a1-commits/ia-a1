@@ -1,6 +1,8 @@
 import { BlingConnectionStatus } from '@prisma/client';
 import { formatPeraStockResponse } from './blingStockUx';
 
+export { extractBarcodesFromText } from './blingProductSearch';
+
 export type StockSituation =
   | 'OK'
   | 'ABAIXO_DO_MINIMO'
@@ -87,39 +89,6 @@ export function computeStockSituation(
   if (current <= 0) return 'SEM_ESTOQUE';
   if (minimum > 0 && current < minimum) return 'ABAIXO_DO_MINIMO';
   return 'OK';
-}
-
-const BARCODE_TOKEN = /^\d{8,14}$/;
-
-export function extractBarcodesFromText(text: string): string[] {
-  const normalized = text.replace(/\r\n/g, '\n').trim();
-  if (!normalized) return [];
-
-  const seen = new Set<string>();
-  const ordered: string[] = [];
-
-  const pushBarcode = (candidate: string): void => {
-    const code = candidate.trim();
-    if (!BARCODE_TOKEN.test(code) || seen.has(code)) return;
-    seen.add(code);
-    ordered.push(code);
-  };
-
-  for (const part of normalized.split(/[\s;]+/)) {
-    const token = part.trim();
-    if (!token) continue;
-
-    if (BARCODE_TOKEN.test(token)) {
-      pushBarcode(token);
-      continue;
-    }
-
-    for (const match of token.match(/\d{8,14}/g) ?? []) {
-      pushBarcode(match);
-    }
-  }
-
-  return ordered;
 }
 
 export function dedupeBarcodesPreserveOrder(barcodes: string[]): string[] {

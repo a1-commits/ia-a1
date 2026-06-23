@@ -32,6 +32,8 @@ import {
   type CustomerContextRecord,
 } from '../customers/customerContext.service';
 import {
+  canUpdateConversationContactId,
+  findOrCreateConversation,
   type ConversationChannel,
   type ConversationIdentityMeta,
   prepareConversationForMessage,
@@ -257,22 +259,41 @@ export async function processAgentMessage(
     customerContextConversationId,
   });
 
-  const conversationId = conversation.id;
+  let activeConversation = conversation;
+
+  let conversationId = activeConversation.id;
   const storageChannel = promptChannelToStorageChannel(channel, input.agentTest);
   const contactDisplayName =
-    input.customerName?.trim() || customerContext?.name?.trim() || conversation.contact?.name?.trim() || null;
+    input.customerName?.trim() || customerContext?.name?.trim() || activeConversation.contact?.name?.trim() || null;
   const contactIdentifier = resolveContactIdentifier({
-    contact: conversation.contact,
+    contact: activeConversation.contact,
     phone: input.customerPhone,
     whatsappId: input.customerWhatsappId,
-    storedIdentifier: conversation.contactIdentifier,
+    storedIdentifier: activeConversation.contactIdentifier,
   });
+
+  const resolvedContactId = activeConversation.contact?.id ?? null;
+  if (
+    resolvedContactId &&
+    activeConversation.contactId &&
+    activeConversation.contactId !== resolvedContactId
+  ) {
+    activeConversation = await findOrCreateConversation({
+      userId,
+      channel: storageChannel,
+      contactId: resolvedContactId,
+      agentId: activeConversation.agentId,
+      contactIdentifier,
+      contactName: contactDisplayName,
+    });
+    conversationId = activeConversation.id;
+  }
 
   const turn: TurnContext = {
     userId,
     storageChannel,
     conversationId,
-    contactId: conversation.contactId,
+    contactId: activeConversation.contactId,
     contactDisplayName,
     contactIdentifier,
     customerContext,
@@ -286,8 +307,6 @@ export async function processAgentMessage(
       content: input.content,
     },
   });
-
-  let activeConversation = conversation;
 
   if (channel === 'web') {
     const confirmM = input.content.match(/^\s*!?\s*confirmar\s+([A-Z0-9]+)\s*$/i);
@@ -511,24 +530,54 @@ export async function processAgentMessage(
     });
     if (contact) {
       turn.contactId = contact.id;
-      const updateData: { contactId: string; agentId?: string } = { contactId: contact.id };
-      if (contact.agentId) updateData.agentId = contact.agentId;
-      activeConversation = await prisma.conversation.update({
-        where: { id: conversationId },
-        data: updateData,
-        include: {
-          contact: {
-            select: {
-              id: true,
-              name: true,
-              phone: true,
-              whatsappId: true,
-              contactAgent: { include: { agent: { select: { id: true, name: true, isActive: true } } } },
+      if (activeConversation.contactId && activeConversation.contactId !== contact.id) {
+        console.warn('[chat] contact/conversation mismatch blocked', {
+          conversationId: activeConversation.id,
+          conversationContactId: activeConversation.contactId,
+          messageContactId: contact.id,
+        });
+        activeConversation = await findOrCreateConversation({
+          userId,
+          channel: storageChannel,
+          contactId: contact.id,
+          agentId: contact.agentId ?? activeConversation.agentId ?? null,
+          contactIdentifier,
+          contactName: contact.name,
+        });
+        conversationId = activeConversation.id;
+        turn.conversationId = conversationId;
+        await prisma.message.update({
+          where: { id: userMsg.id },
+          data: { conversationId },
+        });
+      } else if (
+        canUpdateConversationContactId({
+          conversationContactId: activeConversation.contactId,
+          expectedContactId: contact.id,
+        })
+      ) {
+        const updateData: { contactId?: string; agentId?: string } = {};
+        if (!activeConversation.contactId) updateData.contactId = contact.id;
+        if (contact.agentId) updateData.agentId = contact.agentId;
+        if (Object.keys(updateData).length > 0) {
+          activeConversation = await prisma.conversation.update({
+            where: { id: conversationId },
+            data: updateData,
+            include: {
+              contact: {
+                select: {
+                  id: true,
+                  name: true,
+                  phone: true,
+                  whatsappId: true,
+                  contactAgent: { include: { agent: { select: { id: true, name: true, isActive: true } } } },
+                },
+              },
+              agent: { select: { id: true, name: true, isActive: true } },
             },
-          },
-          agent: { select: { id: true, name: true, isActive: true } },
-        },
-      });
+          });
+        }
+      }
     }
   }
 

@@ -30,15 +30,28 @@ describe('shouldUseBlingStockTool', () => {
     );
   });
 
+  it('PERA usa ferramenta para busca por nome', () => {
+    assert.equal(shouldUseBlingStockTool(agent('PERA'), 'porta documento cartão'), true);
+  });
+
+  it('PERA usa ferramenta para SKU', () => {
+    assert.equal(shouldUseBlingStockTool(agent('PERA'), 'PORTA-CARTAO'), true);
+  });
+
   it('agente genérico exige palavra-chave de estoque', () => {
     assert.equal(shouldUseBlingStockTool(agent('Vendas'), '7891234567890'), false);
     assert.equal(
       shouldUseBlingStockTool(agent('Vendas'), 'estoque 7891234567890'),
       true,
     );
+    assert.equal(
+      shouldUseBlingStockTool(agent('Vendas'), 'estoque porta documento cartão'),
+      true,
+    );
   });
 
-  it('sem código de barras não aciona ferramenta', () => {
+  it('sem código, sku ou nome válido não aciona ferramenta', () => {
+    assert.equal(shouldUseBlingStockTool(agent('PERA'), 'oi'), false);
     assert.equal(shouldUseBlingStockTool(agent('PERA'), 'qual estoque do produto?'), false);
   });
 });

@@ -165,14 +165,13 @@ export async function upsertContactFromWhatsApp(input: {
   paused?: boolean;
 }): Promise<ContactDto> {
   const phone = normalizePhone(input.number);
-  const digits = phone.replace(/\D/g, '');
   const existing = await prisma.contact.findFirst({
     where: {
       userId: input.userId,
       OR: [
-        { phone: { contains: digits.slice(-11) } },
+        { phone },
         input.whatsappId ? { whatsappId: input.whatsappId } : undefined,
-      ].filter(Boolean) as Array<{ phone: { contains: string } } | { whatsappId: string }>,
+      ].filter(Boolean) as Array<{ phone: string } | { whatsappId: string }>,
     },
     include: contactInclude,
   });

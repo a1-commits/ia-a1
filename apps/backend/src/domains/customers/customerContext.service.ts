@@ -1,6 +1,7 @@
 import { ContextType, MessageRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { analyzeLeadConversation } from '../../ai/lead-decision-engine';
+import { resolveLinkedConversationId } from '../chat/conversationIdentity.service';
 
 type CustomerProject = {
   ambiente?: string;
@@ -169,9 +170,32 @@ export async function findRecentConversationIdForCustomer(context: CustomerConte
       userId: context.userId,
       archived: false,
     },
+    select: { id: true, contactId: true },
+  });
+  if (!conversation) return null;
+
+  const contact = await prisma.contact.findFirst({
+    where: {
+      userId: context.userId,
+      OR: [
+        context.phone ? { phone: context.phone } : undefined,
+        context.whatsappId ? { whatsappId: context.whatsappId } : undefined,
+      ].filter(Boolean) as Array<{ phone: string } | { whatsappId: string }>,
+    },
     select: { id: true },
   });
-  return conversation?.id ?? null;
+
+  if (
+    !resolveLinkedConversationId({
+      linkedConversationId: conversation.id,
+      linkedConversationContactId: conversation.contactId,
+      expectedContactId: contact?.id ?? null,
+    })
+  ) {
+    return null;
+  }
+
+  return conversation.id;
 }
 
 export function buildCustomerContextSystemMessage(context: CustomerContextRecord | null): string | null {
