@@ -9,12 +9,8 @@ const NAV = [
   { href: '/operator', label: 'Operador', icon: '⚙' },
   { href: '/chat', label: 'Chat', icon: '◆' },
   { href: '/controle', label: 'Painel', icon: '◉' },
-  { href: '/propostas', label: 'Propostas', icon: '◈' },
   { href: '/financeiro', label: 'Financeiro', icon: '◌' },
-  { href: '/search', label: 'Busca', icon: '⌕' },
-  { href: '/memories', label: 'Memórias', icon: '◇' },
   { href: '/tasks', label: 'Tarefas', icon: '▪' },
-  { href: '/reflections', label: 'Reflexões', icon: '○' },
   { href: '/settings', label: 'Ajustes', icon: '◎' },
 ] as const;
 
@@ -30,10 +26,10 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactElem
       <aside className="hidden w-60 shrink-0 border-r border-white/10 bg-[var(--moble-black)] px-4 py-6 text-white md:flex md:flex-col">
         <div className="mb-8 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4">
           <div className="mb-4 flex items-center">
-            <img src="/api/brand/logo?variant=branco" alt="Möble Marcenaria" className="logo" />
+            <div className="text-xl font-bold tracking-tight text-white">Mobi</div>
           </div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[var(--moble-accent)]">Operação</div>
-          <div className="mt-1 text-sm font-semibold tracking-tight text-white">MOBI Central</div>
+          <div className="mt-1 text-sm font-semibold tracking-tight text-white">Central</div>
         </div>
         <nav className="flex flex-1 flex-col gap-2">
           {navItems.map((item) => {

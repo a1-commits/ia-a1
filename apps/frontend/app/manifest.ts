@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'AGENTE MOBI',
     short_name: 'Mobi',
-    description: 'Chat, WhatsApp e controles do agente Moble',
+    description: 'Chat, WhatsApp e controles do agente Mobi',
     start_url: '/',
     display: 'standalone',
     orientation: 'portrait-primary',

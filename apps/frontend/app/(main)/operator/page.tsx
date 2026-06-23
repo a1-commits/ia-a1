@@ -149,32 +149,11 @@ const TAB_ANIMATION = {
   exit: { opacity: 0, y: -6 },
 };
 
-function leadTone(intentLevel: string): 'neutral' | 'accent' | 'success' | 'warning' | 'danger' {
-  if (intentLevel === 'pronto_para_fechamento' || intentLevel === 'quente') return 'success';
-  if (intentLevel === 'interessado') return 'accent';
-  if (intentLevel === 'curioso') return 'warning';
-  return 'neutral';
-}
-
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
   }).format(value);
-}
-
-function proposalStatusLabel(status: 'DRAFT' | 'SENT' | 'APPROVED' | 'LOST'): string {
-  if (status === 'DRAFT') return 'Rascunho';
-  if (status === 'SENT') return 'Enviada';
-  if (status === 'APPROVED') return 'Aprovada';
-  return 'Perdida';
-}
-
-function proposalStatusTone(status: 'DRAFT' | 'SENT' | 'APPROVED' | 'LOST'): 'neutral' | 'accent' | 'success' | 'danger' {
-  if (status === 'APPROVED') return 'success';
-  if (status === 'SENT') return 'accent';
-  if (status === 'LOST') return 'danger';
-  return 'neutral';
 }
 
 export default function OperatorPage(): React.ReactElement {
@@ -599,9 +578,9 @@ export default function OperatorPage(): React.ReactElement {
   const greeting =
     new Date().getHours() < 12 ? 'Bom dia' : new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite';
   const priorities = [
-    data?.operationalSummary?.oportunidades?.[0] ? `Responder ${data.operationalSummary.oportunidades[0]}` : null,
-    (data?.metrics.openHandoffs ?? 0) > 0 ? 'Dar continuidade aos leads que pediram atendimento humano' : null,
+    (data?.metrics.openHandoffs ?? 0) > 0 ? 'Dar continuidade aos handoffs abertos' : null,
     (data?.metrics.openTasks ?? 0) > 0 ? 'Revisar tarefas abertas da operação' : null,
+    (data?.metrics.messagesLast24h ?? 0) > 0 ? 'Acompanhar conversas recentes no chat' : null,
     (data?.financeToday.saldo ?? 0) < 0 ? 'Conferir fluxo financeiro do dia' : null,
   ].filter((item): item is string => Boolean(item));
 
@@ -611,7 +590,7 @@ export default function OperatorPage(): React.ReactElement {
       <header className="page-header overflow-hidden rounded-[28px] border border-[var(--moble-border)] bg-white/85 p-6 shadow-[0_18px_60px_rgba(14,14,14,0.06)] backdrop-blur md:p-8">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="rounded-2xl border border-[var(--moble-border)] bg-white px-4 py-3 shadow-sm">
-            <img src="/api/brand/logo?variant=preto" alt="Logo Möble" className="logo" />
+            <div className="text-xl font-bold tracking-tight text-[var(--moble-black)]">Mobi</div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="accent">Centro de Operações</Badge>
@@ -621,10 +600,10 @@ export default function OperatorPage(): React.ReactElement {
           </div>
         </div>
         <h1 className="mt-6 max-w-3xl text-3xl font-bold tracking-tight text-[var(--moble-black)] md:text-4xl">
-          {greeting}, Ronan. Aqui está o resumo da operação da Möble hoje.
+          {greeting}. Aqui está o resumo da operação hoje.
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--moble-muted)] md:text-base">
-          Visão executiva do MOBI para vendas, tarefas, WhatsApp, financeiro e integrações críticas.
+          Visão executiva do MOBI para atendimento, tarefas, WhatsApp, financeiro e integrações.
         </p>
       </header>
 
@@ -715,9 +694,9 @@ export default function OperatorPage(): React.ReactElement {
           >
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard
-                label="Leads ativos"
-                value={loading || !data ? '...' : (data.operationalSummary?.leads_abertos ?? data.metrics.openHandoffs)}
-                hint="Handoffs e oportunidades comerciais"
+                label="Conversas"
+                value={loading || !data ? '...' : data.metrics.totalConversations}
+                hint="Total de conversas registradas"
                 tone="accent"
               />
               <MetricCard
@@ -740,77 +719,6 @@ export default function OperatorPage(): React.ReactElement {
               />
             </div>
 
-            <Card>
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="eyebrow">Funil comercial</div>
-                  <h2 className="mt-1 text-xl font-bold text-[var(--moble-black)]">Propostas e oportunidades</h2>
-                </div>
-                <Badge tone="accent">
-                  {loading || !data ? '...' : `${data.commercialFunnel?.hotLeads ?? 0} lead(s) quente(s)`}
-                </Badge>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-                <div className="rounded-2xl border border-[var(--moble-border)] bg-[var(--moble-bg)]/70 p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-[var(--moble-muted)]">Leads quentes</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--moble-black)]">
-                    {loading || !data ? '...' : data.commercialFunnel?.hotLeads ?? 0}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-[var(--moble-border)] bg-[var(--moble-bg)]/70 p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-[var(--moble-muted)]">Com Ronan</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--moble-danger)]">
-                    {loading || !data ? '...' : data.commercialFunnel?.handoffs ?? 0}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-[var(--moble-border)] bg-white p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-[var(--moble-muted)]">Rascunhos</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--moble-black)]">
-                    {loading || !data ? '...' : data.commercialFunnel?.proposals.draft ?? 0}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-[var(--moble-border)] bg-white p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-[var(--moble-muted)]">Enviadas</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--moble-accent)]">
-                    {loading || !data ? '...' : data.commercialFunnel?.proposals.sent ?? 0}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-[var(--moble-border)] bg-white p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-[var(--moble-muted)]">Aprovadas</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--moble-success)]">
-                    {loading || !data ? '...' : data.commercialFunnel?.proposals.approved ?? 0}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-[var(--moble-border)] bg-white p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-[var(--moble-muted)]">Perdidas</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--moble-danger)]">
-                    {loading || !data ? '...' : data.commercialFunnel?.proposals.lost ?? 0}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                {(data?.commercialFunnel?.recentProposals ?? []).slice(0, 4).map((proposal) => (
-                  <div key={proposal.id} className="rounded-2xl border border-[var(--moble-border)] bg-[var(--moble-bg)]/60 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-[var(--moble-black)]">{proposal.title}</div>
-                        <div className="mt-1 text-xs text-[var(--moble-muted)]">
-                          Atualizada em {new Date(proposal.updatedAt).toLocaleString('pt-BR')}
-                        </div>
-                      </div>
-                      <Badge tone={proposalStatusTone(proposal.status)}>{proposalStatusLabel(proposal.status)}</Badge>
-                    </div>
-                    {proposal.valueEstimate != null && (
-                      <div className="mt-2 text-sm font-bold text-[var(--moble-black)]">{formatCurrency(proposal.valueEstimate)}</div>
-                    )}
-                  </div>
-                ))}
-                {!loading && (data?.commercialFunnel?.recentProposals.length ?? 0) === 0 && (
-                  <p className="text-sm text-[var(--moble-muted)]">Nenhuma proposta salva ainda. Gere uma pelo chat comercial.</p>
-                )}
-              </div>
-            </Card>
-
             <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
               <Card>
                 <div className="mb-4 flex items-center justify-between gap-3">
@@ -821,7 +729,7 @@ export default function OperatorPage(): React.ReactElement {
                   <Badge tone="accent">{priorities.length || 1} foco(s)</Badge>
                 </div>
                 <div className="space-y-3">
-                  {(priorities.length > 0 ? priorities : ['Monitorar novos leads e revisar o painel comercial da Möble.']).slice(0, 5).map((item, index) => (
+                  {(priorities.length > 0 ? priorities : ['Monitorar conversas e revisar o painel de operação.']).slice(0, 5).map((item, index) => (
                     <div key={`${item}-${index}`} className="flex gap-3 rounded-2xl border border-[var(--moble-border)] bg-[var(--moble-bg)]/70 p-3">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--moble-black)] text-xs font-bold text-white">
                         {index + 1}
@@ -900,64 +808,28 @@ export default function OperatorPage(): React.ReactElement {
               </Card>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <Card>
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="eyebrow">Conversas recentes</div>
-                    <h2 className="mt-1 text-xl font-bold text-[var(--moble-black)]">Status comercial dos leads</h2>
-                  </div>
-                  <Badge>{data?.recentLeadConversations?.length ?? 0} conversas</Badge>
+            <Card>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="eyebrow">Conversas recentes</div>
+                  <h2 className="mt-1 text-xl font-bold text-[var(--moble-black)]">Últimas interações</h2>
                 </div>
-                <div className="space-y-3">
-                  {(data?.recentLeadConversations ?? []).slice(0, 5).map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-[var(--moble-border)] bg-[var(--moble-bg)]/60 p-4">
-                      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <div className="font-semibold text-[var(--moble-black)]">{item.title}</div>
-                          <div className="mt-1 text-xs text-[var(--moble-muted)]">
-                            {new Date(item.lastMessageAt).toLocaleString('pt-BR')} · {item.context}
-                          </div>
-                        </div>
-                        <Badge tone={leadTone(item.intentLevel)}>{item.intentLevel.replaceAll('_', ' ')}</Badge>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-xl bg-white p-3">
-                          <div className="font-bold uppercase tracking-wide text-[var(--moble-muted)]">Lead</div>
-                          <div className="mt-1 text-lg font-bold text-[var(--moble-black)]">{item.leadScore}</div>
-                        </div>
-                        <div className="rounded-xl bg-white p-3">
-                          <div className="font-bold uppercase tracking-wide text-[var(--moble-muted)]">Pronto</div>
-                          <div className="mt-1 text-lg font-bold text-[var(--moble-black)]">{item.readinessScore}</div>
-                        </div>
-                      </div>
+                <Badge>{data?.recentLeadConversations?.length ?? 0} conversas</Badge>
+              </div>
+              <div className="space-y-3">
+                {(data?.recentLeadConversations ?? []).slice(0, 5).map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-[var(--moble-border)] bg-[var(--moble-bg)]/60 p-4">
+                    <div className="font-semibold text-[var(--moble-black)]">{item.title}</div>
+                    <div className="mt-1 text-xs text-[var(--moble-muted)]">
+                      {new Date(item.lastMessageAt).toLocaleString('pt-BR')} · {item.context}
                     </div>
-                  ))}
-                  {!loading && (data?.recentLeadConversations?.length ?? 0) === 0 && (
-                    <p className="text-sm text-[var(--moble-muted)]">Sem conversas recentes para analisar.</p>
-                  )}
-                </div>
-              </Card>
-
-              <Card>
-                <div className="eyebrow">Insights</div>
-                <h2 className="mt-1 text-xl font-bold text-[var(--moble-black)]">Próximos passos sugeridos</h2>
-                <div className="mt-4 space-y-3">
-                  {(data?.recentLeadConversations ?? [])
-                    .filter((item) => item.leadScore >= 45)
-                    .slice(0, 4)
-                    .map((item) => (
-                      <div key={item.id} className="rounded-2xl border border-[var(--moble-border)] bg-white p-3">
-                        <Badge tone={leadTone(item.intentLevel)}>{item.recommendedAction.replaceAll('_', ' ')}</Badge>
-                        <p className="mt-2 text-sm leading-6 text-[var(--moble-gray)]">{item.nextMessageSuggestion}</p>
-                      </div>
-                    ))}
-                  {!loading && (data?.recentLeadConversations ?? []).filter((item) => item.leadScore >= 45).length === 0 && (
-                    <p className="text-sm text-[var(--moble-muted)]">O MOBI ainda não detectou oportunidades fortes nas conversas recentes.</p>
-                  )}
-                </div>
-              </Card>
-            </div>
+                  </div>
+                ))}
+                {!loading && (data?.recentLeadConversations?.length ?? 0) === 0 && (
+                  <p className="text-sm text-[var(--moble-muted)]">Sem conversas recentes.</p>
+                )}
+              </div>
+            </Card>
           </motion.div>
         )}
 

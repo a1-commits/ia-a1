@@ -258,7 +258,7 @@ export default function FinanceiroPage(): React.ReactElement {
           <div className="eyebrow">Financeiro</div>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-[var(--moble-black)]">Fluxo financeiro</h1>
           <p className="mt-2 text-sm text-[var(--moble-muted)]">
-            Contas, orçamentos e alertas financeiros da operação Möble conectados à Olist.
+            Contas, orçamentos e alertas financeiros da operação conectados à Olist.
           </p>
         </header>
 
