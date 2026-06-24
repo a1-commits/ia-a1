@@ -6,6 +6,7 @@ import {
 } from './bling.service';
 import {
   formatProductDisambiguationResponse,
+  isNumericGtinInput,
   logGtinSearchDiagnostic,
   parseBlingStockRequest,
   shouldAutoSelectNameMatch,
@@ -57,11 +58,14 @@ export async function tryHandleBlingStockQuery(input: {
     return formatProductDisambiguationResponse(options);
   }
 
+  const queryMode =
+    request.kind === 'barcode' || request.queries.every(isNumericGtinInput) ? 'gtin' : 'sku';
+
   const data = await aggregateStockForAgent({
     userId: input.userId,
     agentId: input.agent.id,
     barcodes: request.queries,
-    queryMode: request.kind === 'sku' ? 'sku' : 'gtin',
+    queryMode,
   });
 
   return formatStockResponse(data);

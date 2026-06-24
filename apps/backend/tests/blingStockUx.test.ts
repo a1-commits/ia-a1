@@ -93,9 +93,7 @@ describe('formatPeraStockResponse UX', () => {
     );
 
     assert.match(text, /Código: 4152465547/);
-    assert.match(text, /❌ Produto não encontrado em nenhuma loja conectada\./);
-    assert.match(text, /• PB1/);
-    assert.match(text, /• PB4/);
+    assert.match(text, /❌ Produto não encontrado pelo GTIN\/EAN no Bling\./);
     assert.doesNotMatch(text, /Total disponível/);
     assert.doesNotMatch(text, /\|/);
     assert.doesNotMatch(text, /---/);
@@ -128,7 +126,7 @@ describe('formatPeraStockResponse UX', () => {
     assert.match(text, /^Código: 7891234567890/);
     assert.match(text, /Código: 7899876543210/);
     assert.match(text, /Produto: Produto A/);
-    assert.match(text, /❌ Produto não encontrado em nenhuma loja conectada\./);
+    assert.match(text, /❌ Produto não encontrado pelo GTIN\/EAN no Bling\./);
     assert.match(text, /---/);
     assert.doesNotMatch(text, /===/);
     assert.doesNotMatch(text, /\| --- \|/);
@@ -158,7 +156,7 @@ describe('formatPeraStockResponse UX', () => {
       ]),
     );
 
-    assert.match(text, /Código: 7898956381167[\s\S]*❌ Produto não encontrado em nenhuma loja conectada\./);
+    assert.match(text, /Código: 7898956381167[\s\S]*❌ Produto não encontrado pelo GTIN\/EAN no Bling\./);
     assert.match(text, /---[\s\S]*Código: 7898215151784/);
     assert.match(text, /Produto: CREME DE LEITE PIRACANJUBA 200G/);
     assert.match(text, /Total disponível: 1 unidade/);

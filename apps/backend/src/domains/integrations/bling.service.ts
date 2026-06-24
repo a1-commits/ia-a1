@@ -15,10 +15,10 @@ import {
   buildGtinSearchPaths,
   buildNameSearchPath,
   buildSkuSearchPath,
-  buildGtinFallbackDiscoveryPaths,
   collectGtinFields,
   dedupeProductOptions,
   findExactGtinProduct,
+  isNumericGtinInput,
   logGtinSearchDiagnostic,
   summarizeBlingProductCandidate,
   summarizeProductOption,
@@ -473,16 +473,11 @@ async function findProductByGtinEan(token: string, gtin: string): Promise<BlingP
     if (match) return match;
   }
 
-  for (const path of buildGtinFallbackDiscoveryPaths(gtin)) {
-    const match = await searchGtinOnPath(token, gtin, path, 'fallback');
-    if (match) return match;
-  }
-
   logGtinSearchDiagnostic({
     query: gtin,
     mode: 'GTIN',
     endpoint: '/produtos',
-    phase: 'fallback',
+    phase: 'primary',
     candidateCount: 0,
     firstCandidate: null,
     matched: false,
@@ -559,6 +554,9 @@ async function findProductByQuery(
   query: string,
   mode: BlingProductQueryMode,
 ): Promise<BlingProduct | null> {
+  if (isNumericGtinInput(query)) {
+    return findProductByGtinEan(token, query);
+  }
   if (mode === 'sku') return findProductBySku(token, query);
   return findProductByGtinEan(token, query);
 }
@@ -680,7 +678,7 @@ async function searchStockByProductQueryImpl(
         query,
         mode: mode === 'sku' ? 'SKU' : 'GTIN',
         endpoint: 'searchStockByProductQuery',
-        phase: mode === 'sku' ? 'primary' : 'fallback',
+        phase: 'primary',
         candidateCount: 0,
         firstCandidate: null,
         matched: false,

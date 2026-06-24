@@ -40,14 +40,10 @@ function formatStoreBlock(store: BlingStockStoreResult): string[] {
 }
 
 function formatNotFoundAnywhere(result: BlingStockByBarcodeResult): string {
-  const stores = sortStoresByLabel(result.stores);
   return [
     `Código: ${result.barcode}`,
     '',
-    '❌ Produto não encontrado em nenhuma loja conectada.',
-    '',
-    'Lojas consultadas:',
-    ...stores.map((store) => `• ${store.storeLabel}`),
+    '❌ Produto não encontrado pelo GTIN/EAN no Bling.',
   ].join('\n');
 }
 

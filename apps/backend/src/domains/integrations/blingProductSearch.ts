@@ -1,4 +1,5 @@
-const BARCODE_TOKEN = /^\d{8,14}$/;
+export const NUMERIC_GTIN_PATTERN = /^\d{8,14}$/;
+const BARCODE_TOKEN = NUMERIC_GTIN_PATTERN;
 const SKU_TOKEN = /^[A-Za-z][A-Za-z0-9\-_.]{2,48}$/;
 
 const STOCK_KEYWORDS =
@@ -249,17 +250,16 @@ export function findExactSkuProduct<T>(products: T[], searchedSku: string): T | 
   return null;
 }
 
+export function isNumericGtinInput(value: string): boolean {
+  return NUMERIC_GTIN_PATTERN.test(value.trim());
+}
+
+/** Apenas parâmetros GTIN/EAN — nunca ?codigo= (SKU interno). */
 export function buildGtinSearchPaths(gtin: string): string[] {
   return [
     `/produtos?pagina=1&limite=50&gtin=${encodeURIComponent(gtin)}`,
     `/produtos?pagina=1&limite=50&codigoBarras=${encodeURIComponent(gtin)}`,
-  ];
-}
-
-export function buildGtinFallbackDiscoveryPaths(gtin: string): string[] {
-  return [
-    `/produtos?pagina=1&limite=50&codigo=${encodeURIComponent(gtin)}`,
-    `/produtos?pagina=1&limite=50&nome=${encodeURIComponent(gtin)}`,
+    `/produtos?pagina=1&limite=50&ean=${encodeURIComponent(gtin)}`,
   ];
 }
 
