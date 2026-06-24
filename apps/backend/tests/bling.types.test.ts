@@ -114,6 +114,7 @@ describe('formatStockResponse', () => {
               productName: 'Produto Exemplo',
               internalCode: 'PROD001',
               barcode: '7891234567890',
+              salePrice: 5.99,
               currentStock: 18,
               minimumStock: 10,
               situation: 'OK',
@@ -126,6 +127,7 @@ describe('formatStockResponse', () => {
               productName: null,
               internalCode: null,
               barcode: '7891234567890',
+              salePrice: null,
               currentStock: null,
               minimumStock: null,
               situation: 'NAO_ENCONTRADO',
@@ -138,7 +140,8 @@ describe('formatStockResponse', () => {
     const text = formatStockResponse(data);
     assert.match(text, /Código: 7891234567890/);
     assert.match(text, /Produto: Produto Exemplo/);
-    assert.match(text, /Total disponível: 22 unidades/);
+    assert.match(text, /Preço: R\$ 5,99/);
+    assert.doesNotMatch(text, /Total disponível/);
     assert.doesNotMatch(text, /Consulta de estoque Bling/);
     assert.doesNotMatch(text, /\| --- \|/);
   });

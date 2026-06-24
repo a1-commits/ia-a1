@@ -1,4 +1,5 @@
 import type { BlingStockByBarcodeResult, BlingMultiStoreStockResponse, BlingStockStoreResult } from './bling.types';
+import { formatBrazilianSalePrice } from './blingProductSearch';
 
 const MULTI_BARCODE_SEPARATOR = '\n---\n';
 
@@ -9,11 +10,6 @@ function sortStoresByLabel(stores: BlingStockStoreResult[]): BlingStockStoreResu
 function asInteger(value: number | null | undefined): number {
   if (value === null || value === undefined || Number.isNaN(value)) return 0;
   return Math.trunc(value);
-}
-
-function formatUnits(count: number): string {
-  const value = asInteger(count);
-  return value === 1 ? '1 unidade' : `${value} unidades`;
 }
 
 function storeHasProduct(store: BlingStockStoreResult): boolean {
@@ -34,6 +30,7 @@ function formatStoreBlock(store: BlingStockStoreResult): string[] {
   }
 
   lines.push(`Produto: ${store.productName ?? '—'}`);
+  lines.push(`Preço: ${formatBrazilianSalePrice(store.salePrice)}`);
   lines.push(`Estoque: ${asInteger(store.currentStock)}`);
   lines.push(`Estoque mínimo: ${asInteger(store.minimumStock)}`);
   return lines;
@@ -55,7 +52,6 @@ function formatFoundBarcodeResult(result: BlingStockByBarcodeResult): string {
     lines.push(...formatStoreBlock(store), '');
   }
 
-  lines.push(`Total disponível: ${formatUnits(result.totalCurrentStock)}`);
   return lines.join('\n').trim();
 }
 

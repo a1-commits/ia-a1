@@ -442,3 +442,58 @@ export function logGtinSearchDiagnostic(input: {
 }): void {
   console.info('[bling:gtin-diagnostic]', JSON.stringify(input));
 }
+
+const BLING_SALE_PRICE_FIELD_NAMES = ['preco', 'precoVenda', 'valor', 'price', 'salePrice'] as const;
+
+export type BlingSalePriceExtract = {
+  price: number | null;
+  source: string | null;
+};
+
+function parseBlingPriceValue(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const normalized =
+      trimmed.includes(',') && trimmed.includes('.')
+        ? trimmed.replace(/\./g, '').replace(',', '.')
+        : trimmed.replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/** Extrai preço de venda do payload Bling (preco, precoVenda, valor, price, salePrice). */
+export function extractBlingSalePriceDetail(product: unknown): BlingSalePriceExtract {
+  if (!product || typeof product !== 'object') return { price: null, source: null };
+
+  const record = product as Record<string, unknown>;
+
+  for (const key of BLING_SALE_PRICE_FIELD_NAMES) {
+    const raw = record[key];
+    if (key === 'preco' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const nestedKey of BLING_SALE_PRICE_FIELD_NAMES) {
+        const nestedPrice = parseBlingPriceValue((raw as Record<string, unknown>)[nestedKey]);
+        if (nestedPrice !== null) return { price: nestedPrice, source: `preco.${nestedKey}` };
+      }
+      continue;
+    }
+
+    const price = parseBlingPriceValue(raw);
+    if (price !== null) return { price, source: key };
+  }
+
+  return { price: null, source: null };
+}
+
+export function extractBlingSalePrice(product: unknown): number | null {
+  return extractBlingSalePriceDetail(product).price;
+}
+
+export function formatBrazilianSalePrice(price: number | null | undefined): string {
+  if (price === null || price === undefined || Number.isNaN(price)) return 'Não informado';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(price);
+}

@@ -6,6 +6,9 @@ import {
   collectGtinFields,
   collectSkuField,
   explainGtinMatch,
+  extractBlingSalePrice,
+  extractBlingSalePriceDetail,
+  formatBrazilianSalePrice,
   findExactGtinProduct,
   findExactSkuProduct,
   formatProductDisambiguationResponse,
@@ -165,6 +168,23 @@ describe('GTIN diagnostic — explainGtinMatch', () => {
     const request = parseBlingStockRequest(GTIN_SAMPLE);
     assert.equal(request?.kind, 'barcode');
     assert.equal(inferQueryModeFromRequest(request), 'gtin');
+  });
+});
+
+describe('extractBlingSalePrice — preço de venda Bling', () => {
+  it('preco 5.99 retorna R$ 5,99', () => {
+    assert.equal(extractBlingSalePrice({ preco: 5.99 }), 5.99);
+    assert.equal(formatBrazilianSalePrice(5.99), 'R$ 5,99');
+  });
+
+  it('precoVenda e objeto preco aninhado', () => {
+    assert.equal(extractBlingSalePriceDetail({ precoVenda: 5.99 }).source, 'precoVenda');
+    assert.equal(extractBlingSalePriceDetail({ preco: { preco: 5.99 } }).source, 'preco.preco');
+  });
+
+  it('produto sem preço retorna null', () => {
+    assert.equal(extractBlingSalePrice({ nome: 'X' }), null);
+    assert.equal(formatBrazilianSalePrice(null), 'Não informado');
   });
 });
 

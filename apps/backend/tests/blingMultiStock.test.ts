@@ -18,6 +18,7 @@ function mockStoreResult(barcode: string, found: boolean): BlingStockStoreResult
     productName: found ? 'Produto teste' : null,
     internalCode: found ? 'INT1' : null,
     barcode,
+    salePrice: null,
     currentStock: found ? 10 : null,
     minimumStock: found ? 5 : null,
     situation: found ? 'OK' : 'NAO_ENCONTRADO',

@@ -14,6 +14,7 @@ function store(
     productName: null,
     internalCode: null,
     barcode: '7891234567890',
+    salePrice: null,
     currentStock: null,
     minimumStock: null,
     error: null,
@@ -38,7 +39,7 @@ function mockData(
 }
 
 describe('formatPeraStockResponse UX', () => {
-  it('CASO 1: produto encontrado em lojas com total amigável', () => {
+  it('CASO 1: produto encontrado em lojas com preço por loja', () => {
     const text = formatPeraStockResponse(
       mockData([
         {
@@ -49,6 +50,7 @@ describe('formatPeraStockResponse UX', () => {
               found: true,
               situation: 'ABAIXO_DO_MINIMO',
               productName: 'FANDANGOS PRESUNTO 85G',
+              salePrice: 4.5,
               currentStock: 8,
               minimumStock: 10,
             }),
@@ -56,6 +58,7 @@ describe('formatPeraStockResponse UX', () => {
               found: true,
               situation: 'OK',
               productName: 'FANDANGOS PRESUNTO 85G',
+              salePrice: 5.99,
               currentStock: 25,
               minimumStock: 10,
             }),
@@ -67,13 +70,39 @@ describe('formatPeraStockResponse UX', () => {
     );
 
     assert.match(text, /^Código: 7891234567890/);
-    assert.match(text, /PB1\nProduto: FANDANGOS PRESUNTO 85G\nEstoque: 25\nEstoque mínimo: 10/);
-    assert.match(text, /PB2\nProduto: FANDANGOS PRESUNTO 85G\nEstoque: 8\nEstoque mínimo: 10/);
+    assert.match(text, /PB1\nProduto: FANDANGOS PRESUNTO 85G\nPreço: R\$ 5,99\nEstoque: 25\nEstoque mínimo: 10/);
+    assert.match(text, /PB2\nProduto: FANDANGOS PRESUNTO 85G\nPreço: R\$ 4,50\nEstoque: 8\nEstoque mínimo: 10/);
     assert.match(text, /PB3\nProduto não encontrado/);
     assert.match(text, /PB4\nProduto não encontrado/);
-    assert.match(text, /Total disponível: 33 unidades/);
+    assert.doesNotMatch(text, /Total disponível/);
     assert.doesNotMatch(text, /\| --- \|/);
     assert.doesNotMatch(text, /Consulta de estoque Bling/);
+  });
+
+  it('produto sem preço retorna "Preço: Não informado"', () => {
+    const text = formatPeraStockResponse(
+      mockData([
+        {
+          barcode: '0751320654120',
+          totalCurrentStock: 8,
+          stores: [
+            store('PB1', {
+              found: true,
+              situation: 'OK',
+              productName: 'PORTA DOCUMENTO CARTAO DE CREDITO',
+              salePrice: null,
+              currentStock: 8,
+              minimumStock: 0,
+            }),
+          ],
+        },
+      ]),
+    );
+
+    assert.match(
+      text,
+      /PB1\nProduto: PORTA DOCUMENTO CARTAO DE CREDITO\nPreço: Não informado\nEstoque: 8\nEstoque mínimo: 0/,
+    );
   });
 
   it('CASO 2: produto não encontrado em nenhuma loja', () => {
@@ -110,6 +139,7 @@ describe('formatPeraStockResponse UX', () => {
               found: true,
               situation: 'OK',
               productName: 'Produto A',
+              salePrice: 5.99,
               currentStock: 5,
               minimumStock: 2,
             }),
@@ -126,8 +156,10 @@ describe('formatPeraStockResponse UX', () => {
     assert.match(text, /^Código: 7891234567890/);
     assert.match(text, /Código: 7899876543210/);
     assert.match(text, /Produto: Produto A/);
+    assert.match(text, /Preço: R\$ 5,99/);
     assert.match(text, /❌ Produto não encontrado pelo GTIN\/EAN no Bling\./);
     assert.match(text, /---/);
+    assert.doesNotMatch(text, /Total disponível/);
     assert.doesNotMatch(text, /===/);
     assert.doesNotMatch(text, /\| --- \|/);
   });
@@ -148,6 +180,7 @@ describe('formatPeraStockResponse UX', () => {
               found: true,
               situation: 'OK',
               productName: 'CREME DE LEITE PIRACANJUBA 200G',
+              salePrice: 3.49,
               currentStock: 1,
               minimumStock: 0,
             }),
@@ -159,7 +192,8 @@ describe('formatPeraStockResponse UX', () => {
     assert.match(text, /Código: 7898956381167[\s\S]*❌ Produto não encontrado pelo GTIN\/EAN no Bling\./);
     assert.match(text, /---[\s\S]*Código: 7898215151784/);
     assert.match(text, /Produto: CREME DE LEITE PIRACANJUBA 200G/);
-    assert.match(text, /Total disponível: 1 unidade/);
+    assert.match(text, /Preço: R\$ 3,49/);
+    assert.doesNotMatch(text, /Total disponível/);
     assert.doesNotMatch(text, /===/);
     assert.doesNotMatch(text, /1 unidades/);
   });
@@ -176,6 +210,7 @@ describe('formatPeraStockResponse UX', () => {
               found: true,
               situation: 'OK',
               productName: 'X',
+              salePrice: 1,
               currentStock: 1,
               minimumStock: 0,
             }),
@@ -200,6 +235,7 @@ describe('formatPeraStockResponse UX', () => {
               found: true,
               situation: 'OK',
               productName: 'Item',
+              salePrice: 5.99,
               currentStock: 10.9,
               minimumStock: 3.2,
             }),
@@ -208,6 +244,7 @@ describe('formatPeraStockResponse UX', () => {
       ]),
     );
 
+    assert.match(text, /Preço: R\$ 5,99/);
     assert.match(text, /Estoque: 10/);
     assert.match(text, /Estoque mínimo: 3/);
   });

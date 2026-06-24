@@ -17,6 +17,7 @@ export type BlingStockStoreResult = {
   productName: string | null;
   internalCode: string | null;
   barcode: string;
+  salePrice: number | null;
   currentStock: number | null;
   minimumStock: number | null;
   situation: StockSituation;

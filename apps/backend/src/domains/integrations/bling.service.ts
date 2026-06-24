@@ -18,6 +18,7 @@ import {
   collectGtinFields,
   dedupeProductOptions,
   explainGtinMatch,
+  extractBlingSalePriceDetail,
   isNumericGtinInput,
   logGtinDiagnostic1,
   logGtinParamSearch,
@@ -409,6 +410,11 @@ type BlingProduct = {
   codigoBarras?: string | Record<string, unknown>;
   ean?: string;
   barcode?: string;
+  preco?: number | Record<string, unknown>;
+  precoVenda?: number;
+  valor?: number;
+  price?: number;
+  salePrice?: number;
   estoque?: { saldoVirtualTotal?: number; minimo?: number; saldoFisicoTotal?: number };
 };
 
@@ -733,6 +739,7 @@ async function searchStockByProductQueryImpl(
       productName: null,
       internalCode: null,
       barcode: query,
+      salePrice: null,
       currentStock: null,
       minimumStock: null,
       situation: 'ERRO_CONSULTA',
@@ -749,6 +756,7 @@ async function searchStockByProductQueryImpl(
       productName: null,
       internalCode: null,
       barcode: query,
+      salePrice: null,
       currentStock: null,
       minimumStock: null,
       situation: 'ERRO_CONSULTA',
@@ -809,6 +817,7 @@ async function searchStockByProductQueryImpl(
         productName: null,
         internalCode: null,
         barcode: query,
+        salePrice: null,
         currentStock: null,
         minimumStock: null,
         situation: 'NAO_ENCONTRADO',
@@ -835,6 +844,7 @@ async function searchStockByProductQueryImpl(
 
     const displayGtin = resolveDisplayGtin(product, query, mode);
     const matchExplanation = explainGtinMatch(product, query);
+    const salePriceDetail = extractBlingSalePriceDetail(product);
 
     logGtinDiagnostic1('searchStockByProductQuery.found', {
       input: query,
@@ -850,6 +860,8 @@ async function searchStockByProductQueryImpl(
       gtinFields: matchExplanation.gtinFields,
       codigoSku: matchExplanation.codigoSku,
       displayGtin,
+      salePrice: salePriceDetail.price,
+      salePriceSource: salePriceDetail.source,
     });
 
     logGtinSearchDiagnostic({
@@ -871,6 +883,7 @@ async function searchStockByProductQueryImpl(
       productName: product.nome ?? null,
       internalCode: product.codigo ?? String(product.id),
       barcode: displayGtin,
+      salePrice: salePriceDetail.price,
       currentStock,
       minimumStock,
       situation,
@@ -889,6 +902,7 @@ async function searchStockByProductQueryImpl(
       productName: null,
       internalCode: null,
       barcode: query,
+      salePrice: null,
       currentStock: null,
       minimumStock: null,
       situation: 'ERRO_CONSULTA',
