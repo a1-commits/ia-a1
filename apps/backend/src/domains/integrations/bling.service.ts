@@ -12,15 +12,15 @@ import {
   summarizeProductForBarcodeLog,
 } from './blingBarcode';
 import {
-  buildGtinSearchPaths,
+  buildGtinSearchPath,
   buildNameSearchPath,
   buildSkuSearchPath,
   collectGtinFields,
   dedupeProductOptions,
-  findExactGtinProduct,
   explainGtinMatch,
   isNumericGtinInput,
   logGtinDiagnostic1,
+  logGtinParamSearch,
   logGtinSearchDiagnostic,
   summarizeBlingProductCandidate,
   summarizeBlingProductCandidates,
@@ -450,121 +450,123 @@ async function fetchBlingProductById(
   return res.data.data ?? null;
 }
 
-async function searchGtinOnPath(
-  token: string,
-  gtin: string,
-  path: string,
-  phase: 'primary' | 'fallback',
-): Promise<BlingProduct | null> {
+async function searchGtinByGtinsParam(token: string, gtin: string): Promise<BlingProduct | null> {
+  const path = buildGtinSearchPath(gtin);
   const url = `${env.BLING_API_BASE_URL}${path}`;
   const res = await blingFetch<{ data?: BlingProduct[] }>(token, path);
   const items = res.ok ? (res.data.data ?? []) : [];
-  const endpoint = path.split('?')[0] ?? path;
-  const candidates = summarizeBlingProductCandidates(items);
-  const firstCandidate = candidates[0] ?? null;
 
-  const direct = findExactGtinProduct(items, gtin);
-  const listMatchExplanation = direct
-    ? explainGtinMatch(direct, gtin)
-    : items.length === 0
-      ? {
-          matched: false,
-          matchReason: res.ok ? 'bling-returned-zero-candidates' : 'bling-api-error',
-          matchedField: null,
-          gtinFields: [],
-          codigoSku: null,
-        }
-      : explainGtinMatch(items[0], gtin);
+  logGtinParamSearch({
+    query: gtin,
+    endpoint: path,
+    candidateCount: items.length,
+    gtinReturned: items[0] ? (summarizeBlingProductCandidate(items[0])?.gtin ?? null) : null,
+    matched: false,
+  });
 
   logGtinDiagnostic1('findProductByGtinEan.apiCall', {
     query: gtin,
     url,
     path,
-    queryParam: path.includes('?') ? path.split('?')[1] : null,
-    phase,
     apiOk: res.ok,
     apiStatus: res.ok ? 200 : res.status,
     apiError: res.ok ? null : res.reason,
     candidateCount: items.length,
-    candidates,
-    rawFirstItemKeys: items[0] && typeof items[0] === 'object' ? Object.keys(items[0]) : [],
-    matched: Boolean(direct),
-    matchReason: direct ? listMatchExplanation.matchReason : listMatchExplanation.matchReason,
-    matchedField: direct ? listMatchExplanation.matchedField : null,
-    listMatchExplanation,
+    candidates: summarizeBlingProductCandidates(items),
   });
 
-  logGtinSearchDiagnostic({
-    query: gtin,
-    mode: 'GTIN',
-    endpoint,
-    phase,
-    candidateCount: items.length,
-    firstCandidate,
-    matched: Boolean(direct),
-    matchSource: direct ? `${phase}:${endpoint}` : undefined,
-    apiOk: res.ok,
-    apiStatus: res.ok ? 200 : res.status,
-  });
-
-  if (direct) return direct;
+  if (!res.ok || items.length === 0) {
+    logGtinParamSearch({
+      query: gtin,
+      endpoint: path,
+      candidateCount: items.length,
+      gtinReturned: null,
+      matched: false,
+    });
+    return null;
+  }
 
   for (const item of items.slice(0, 10)) {
     if (!item.id) continue;
     const detail = await fetchBlingProductById(token, item.id, { gtin });
-    if (!detail) continue;
-    if (productMatchesGtin(detail, gtin)) {
-      logGtinSearchDiagnostic({
-        query: gtin,
-        mode: 'GTIN',
-        endpoint: `/produtos/${item.id}`,
-        phase: 'hydrate',
-        candidateCount: 1,
-        firstCandidate: summarizeBlingProductCandidate(detail),
-        matched: true,
-        matchSource: `hydrate:${endpoint}`,
-        apiOk: true,
-      });
-      return detail;
-    }
+    const candidate = detail ? summarizeBlingProductCandidate(detail) : null;
+    const matched = Boolean(detail && productMatchesGtin(detail, gtin));
+    const gtinReturned = candidate?.gtin ?? candidate?.gtinFields[0] ?? null;
+
+    logGtinParamSearch({
+      query: gtin,
+      endpoint: `/produtos/${item.id}`,
+      candidateCount: detail ? 1 : 0,
+      gtinReturned,
+      matched,
+      productId: item.id,
+    });
+
+    logGtinSearchDiagnostic({
+      query: gtin,
+      mode: 'GTIN',
+      endpoint: `/produtos/${item.id}`,
+      phase: 'hydrate',
+      candidateCount: detail ? 1 : 0,
+      firstCandidate: candidate,
+      matched,
+      matchSource: matched ? 'hydrate:gtins[]' : undefined,
+      apiOk: Boolean(detail),
+    });
+
+    if (matched && detail) return detail;
   }
+
+  logGtinParamSearch({
+    query: gtin,
+    endpoint: path,
+    candidateCount: items.length,
+    gtinReturned: null,
+    matched: false,
+  });
 
   return null;
 }
 
 async function findProductByGtinEan(token: string, gtin: string): Promise<BlingProduct | null> {
-  const paths = buildGtinSearchPaths(gtin);
+  const path = buildGtinSearchPath(gtin);
   logGtinDiagnostic1('findProductByGtinEan.start', {
     query: gtin,
     queryMode: 'gtin',
-    paths,
-    urls: paths.map((path) => `${env.BLING_API_BASE_URL}${path}`),
+    path,
+    url: `${env.BLING_API_BASE_URL}${path}`,
   });
 
-  for (const path of paths) {
-    const match = await searchGtinOnPath(token, gtin, path, 'primary');
-    if (match) {
-      const explanation = explainGtinMatch(match, gtin);
-      logGtinDiagnostic1('findProductByGtinEan.found', {
-        query: gtin,
-        queryMode: 'gtin',
-        matched: true,
-        matchReason: explanation.matchReason,
-        matchedField: explanation.matchedField,
-        candidate: summarizeBlingProductCandidate(match),
-        gtinFields: explanation.gtinFields,
-        codigoSku: explanation.codigoSku,
-      });
-      return match;
-    }
+  const match = await searchGtinByGtinsParam(token, gtin);
+  if (match) {
+    const explanation = explainGtinMatch(match, gtin);
+    logGtinDiagnostic1('findProductByGtinEan.found', {
+      query: gtin,
+      queryMode: 'gtin',
+      matched: true,
+      matchReason: explanation.matchReason,
+      matchedField: explanation.matchedField,
+      candidate: summarizeBlingProductCandidate(match),
+      gtinFields: explanation.gtinFields,
+      codigoSku: explanation.codigoSku,
+    });
+    logGtinParamSearch({
+      query: gtin,
+      endpoint: path,
+      candidateCount: 1,
+      gtinReturned: explanation.gtinFields[0] ?? null,
+      matched: true,
+      productId: match.id ?? null,
+    });
+    return match;
   }
 
   logGtinDiagnostic1('findProductByGtinEan.notFound', {
     query: gtin,
     queryMode: 'gtin',
     matched: false,
-    matchReason: 'exhausted-gtin-ean-paths-without-match',
-    pathsAttempted: paths,
+    matchReason: 'gtins-array-no-exact-gtin-match',
+    pathAttempted: path,
   });
 
   logGtinSearchDiagnostic({

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildGtinSearchPath,
   buildGtinSearchPaths,
   collectGtinFields,
   collectSkuField,
@@ -111,17 +112,22 @@ describe('parseBlingStockRequest', () => {
     assert.equal(parseBlingStockRequest(`estoque ${GTIN_SAMPLE}`)?.kind, 'barcode');
   });
 
-  it('buildGtinSearchPaths usa somente parâmetros GTIN/EAN (sem ?codigo= SKU)', () => {
-    const paths = buildGtinSearchPaths('0751320654120');
-    assert.deepEqual(paths, [
-      '/produtos?pagina=1&limite=50&gtin=0751320654120',
-      '/produtos?pagina=1&limite=50&codigoBarras=0751320654120',
-      '/produtos?pagina=1&limite=50&ean=0751320654120',
-    ]);
-    for (const path of paths) {
-      assert.doesNotMatch(path, /[?&]codigo=/);
-      assert.doesNotMatch(path, /[?&]nome=/);
-    }
+  it('buildGtinSearchPath usa gtins[] do Bling v3', () => {
+    assert.equal(buildGtinSearchPath('0751320654120'), '/produtos?gtins[]=0751320654120');
+    assert.deepEqual(buildGtinSearchPaths('0751320654120'), ['/produtos?gtins[]=0751320654120']);
+    assert.doesNotMatch(buildGtinSearchPath('0751320654120'), /[?&]gtin=/);
+    assert.doesNotMatch(buildGtinSearchPath('0751320654120'), /codigoBarras|codigo=|ean=/);
+  });
+
+  it('0751320654120 encontra produto quando GTIN está no campo gtin após hydrate', () => {
+    const hydrated = {
+      id: 10,
+      nome: 'PORTA DOCUMENTO CARTAO DE CREDITO',
+      codigo: 'PORTA-CARTAO',
+      gtin: '0751320654120',
+    };
+    assert.equal(productMatchesGtin(hydrated, '0751320654120'), true);
+    assert.equal(findExactGtinProduct([hydrated], '0751320654120'), hydrated);
   });
 
   it('summarizeBlingProductCandidate expõe campos GTIN do Bling', () => {

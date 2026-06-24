@@ -277,13 +277,13 @@ export function isNumericGtinInput(value: string): boolean {
   return NUMERIC_GTIN_PATTERN.test(value.trim());
 }
 
-/** Apenas parâmetros GTIN/EAN — nunca ?codigo= (SKU interno). */
+/** Parâmetro correto Bling v3: gtins[] (não ?gtin=, que retorna lista genérica). */
+export function buildGtinSearchPath(gtin: string): string {
+  return `/produtos?gtins[]=${encodeURIComponent(gtin)}`;
+}
+
 export function buildGtinSearchPaths(gtin: string): string[] {
-  return [
-    `/produtos?pagina=1&limite=50&gtin=${encodeURIComponent(gtin)}`,
-    `/produtos?pagina=1&limite=50&codigoBarras=${encodeURIComponent(gtin)}`,
-    `/produtos?pagina=1&limite=50&ean=${encodeURIComponent(gtin)}`,
-  ];
+  return [buildGtinSearchPath(gtin)];
 }
 
 export function buildSkuSearchPath(sku: string): string {
@@ -411,6 +411,17 @@ export function explainGtinMatch(product: unknown, searchedGtin: string): GtinMa
     gtinFields,
     codigoSku,
   };
+}
+
+export function logGtinParamSearch(input: {
+  endpoint: string;
+  candidateCount: number;
+  gtinReturned: string | null;
+  matched: boolean;
+  query?: string;
+  productId?: number | null;
+}): void {
+  console.info('[bling:gtin-param]', JSON.stringify(input));
 }
 
 export function logGtinDiagnostic1(event: string, payload: Record<string, unknown>): void {

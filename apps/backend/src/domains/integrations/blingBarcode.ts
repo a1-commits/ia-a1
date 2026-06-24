@@ -5,6 +5,7 @@ import {
 } from './blingProductSearch';
 
 export {
+  buildGtinSearchPath,
   buildGtinSearchPaths,
   buildNameSearchPath,
   buildSkuSearchPath,
