@@ -10,6 +10,7 @@
     "dev:frontend": "npm run dev --workspace=@agente-mobi/frontend",
     "dev:frontend:lan": "npm run dev:lan --workspace=@agente-mobi/frontend",
     "build": "npm run build --workspace=@agente-mobi/shared && npm run build --workspace=@agente-mobi/backend && npm run build --workspace=@agente-mobi/frontend",
+    "install:deploy": "npm install",
     "db:generate": "npm run db:generate --workspace=@agente-mobi/backend",
     "db:migrate": "npm run db:migrate --workspace=@agente-mobi/backend",
     "db:seed": "npm run db:seed --workspace=@agente-mobi/backend",

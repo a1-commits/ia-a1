@@ -14,6 +14,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "prestart": "node -e \"require('exceljs')\"",
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
@@ -21,7 +22,7 @@
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "exceljs": "^4.4.0",
+    "exceljs": "4.4.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.77.0",
