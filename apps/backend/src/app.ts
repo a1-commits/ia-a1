@@ -30,6 +30,7 @@ import { blingRouter } from './domains/integrations/bling.routes';
 import { adminUsersRouter } from './domains/admin/adminUsers.routes';
 import { isOpenAiConfigured } from './config/env';
 import { brandRouter } from './domains/brand/brand.routes';
+import { exportsRouter } from './domains/exports/exports.routes';
 import { MOBI_BRAND_PALETTE } from './domains/brand/brandPalette';
 import { startSecurityRetentionWorker } from './domains/security/securityRetention.service';
 
@@ -88,6 +89,7 @@ app.use('/api/conversations', conversationsRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/files', filesRouter);
+app.use('/api/exports', exportsRouter);
 app.use('/api/search', searchRouter);
 app.use('/api/integrations/bling', blingRouter);
 app.use('/api/integrations', integrationsRouter);

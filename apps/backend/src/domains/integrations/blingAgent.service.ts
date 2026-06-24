@@ -15,6 +15,9 @@ import {
   BLING_TOOL_NAME,
   formatStockResponse,
 } from './bling.types';
+import { createPeraStockExcelExport } from '../exports/peraStockExport.service';
+import { shouldUsePeraStockSummary } from './blingStockExcel';
+import { formatPeraStockSummaryResponse } from './blingStockUx';
 
 const STOCK_KEYWORDS =
   /estoque|c[oó]digo de barras|barras|gtin|ean|saldo|m[ií]nimo|produto|bling|consulta|sku|c[oó]digo interno/i;
@@ -68,7 +71,31 @@ export async function tryHandleBlingStockQuery(input: {
     queryMode,
   });
 
-  return formatStockResponse(data);
+  if (!shouldUsePeraStockSummary(data.barcodes.length)) {
+    return formatStockResponse(data);
+  }
+
+  let downloadUrl: string | null = null;
+  let excelGenerationFailed = false;
+  try {
+    downloadUrl = await createPeraStockExcelExport({
+      userId: input.userId,
+      data,
+    });
+  } catch (error) {
+    excelGenerationFailed = true;
+    console.error(
+      '[bling:excel]',
+      JSON.stringify({
+        userId: input.userId,
+        agentId: input.agent.id,
+        codeCount: data.barcodes.length,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+
+  return formatPeraStockSummaryResponse(data, { downloadUrl, excelGenerationFailed });
 }
 
 export { BLING_TOOL_NAME };

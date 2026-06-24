@@ -1,5 +1,9 @@
 import type { BlingStockByBarcodeResult, BlingMultiStoreStockResponse, BlingStockStoreResult } from './bling.types';
 import { formatBrazilianSalePrice } from './blingProductSearch';
+import {
+  countFoundBarcodes,
+  summarizeStoreItemCounts,
+} from './blingStockExcel';
 
 const MULTI_BARCODE_SEPARATOR = '\n---\n';
 
@@ -75,4 +79,36 @@ export function formatPeraStockResponse(data: BlingMultiStoreStockResponse): str
   }
 
   return data.results.map((result) => formatSingleBarcodeResult(result)).join(MULTI_BARCODE_SEPARATOR).trim();
+}
+
+export function formatPeraStockSummaryResponse(
+  data: BlingMultiStoreStockResponse,
+  options: { downloadUrl?: string | null; excelGenerationFailed?: boolean },
+): string {
+  const totalCodes = data.barcodes.length;
+  const foundCodes = countFoundBarcodes(data);
+  const notFound = totalCodes - foundCodes;
+  const storeSummary = summarizeStoreItemCounts(data);
+
+  const lines = [
+    'Consulta concluída.',
+    '',
+    `Códigos consultados: ${totalCodes}`,
+    `Produtos encontrados: ${foundCodes}`,
+    `Não encontrados: ${notFound}`,
+    '',
+    'Resumo por loja:',
+    ...(storeSummary.length > 0
+      ? storeSummary.map(({ storeLabel, count }) => `• ${storeLabel}: ${count} itens`)
+      : ['• Nenhum item encontrado']),
+    '',
+  ];
+
+  if (options.downloadUrl) {
+    lines.push(`📊 Baixar Excel completo: ${options.downloadUrl}`);
+  } else if (options.excelGenerationFailed) {
+    lines.push('Não consegui gerar a planilha desta vez.');
+  }
+
+  return lines.join('\n');
 }
