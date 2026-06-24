@@ -92,16 +92,39 @@ export function extractNameQueryFromText(text: string): string | null {
 
 export function parseBlingStockRequest(text: string): BlingStockRequest | null {
   const barcodes = extractBarcodesFromText(text);
-  if (barcodes.length > 0) return { kind: 'barcode', queries: barcodes };
+  let result: BlingStockRequest | null = null;
 
-  const nameQuery = extractNameQueryFromText(text);
-  const skus = extractSkuTokensFromText(text);
+  if (barcodes.length > 0) {
+    result = { kind: 'barcode', queries: barcodes };
+  } else {
+    const nameQuery = extractNameQueryFromText(text);
+    const skus = extractSkuTokensFromText(text);
 
-  if (nameQuery?.includes(' ')) return { kind: 'name', query: nameQuery };
-  if (skus.length > 0) return { kind: 'sku', queries: skus };
-  if (nameQuery) return { kind: 'name', query: nameQuery };
+    if (nameQuery?.includes(' ')) result = { kind: 'name', query: nameQuery };
+    else if (skus.length > 0) result = { kind: 'sku', queries: skus };
+    else if (nameQuery) result = { kind: 'name', query: nameQuery };
+  }
 
-  return null;
+  logGtinDiagnostic1('parseBlingStockRequest', {
+    input: text,
+    kind: result?.kind ?? null,
+    queryMode: inferQueryModeFromRequest(result),
+    request: result,
+    classifiedAsBarcode: result?.kind === 'barcode',
+    numericGtinQueries:
+      result?.kind === 'barcode' ? result.queries.every(isNumericGtinInput) : null,
+  });
+
+  return result;
+}
+
+export function inferQueryModeFromRequest(
+  request: BlingStockRequest | null,
+): 'gtin' | 'sku' | 'name' | null {
+  if (!request) return null;
+  if (request.kind === 'barcode') return 'gtin';
+  if (request.kind === 'sku') return 'sku';
+  return 'name';
 }
 
 export function extractBarcodesFromText(text: string): string[] {
@@ -304,6 +327,94 @@ export function summarizeBlingProductCandidate(product: unknown): BlingProductCa
     ean: normalizeBarcode(record.ean),
     gtinFields: collectGtinFields(product),
   };
+}
+
+export function summarizeBlingProductCandidates(products: unknown[]): BlingProductCandidateLog[] {
+  return products
+    .map((product) => summarizeBlingProductCandidate(product))
+    .filter((candidate): candidate is BlingProductCandidateLog => candidate !== null);
+}
+
+export type GtinMatchExplanation = {
+  matched: boolean;
+  matchReason: string;
+  matchedField: string | null;
+  gtinFields: string[];
+  codigoSku: string | null;
+};
+
+function findGtinMatchedFieldName(record: Record<string, unknown>, target: string): string | null {
+  for (const key of GTIN_FIELD_NAMES) {
+    const raw = record[key];
+    if (key === 'codigoBarras' && raw && typeof raw === 'object') {
+      for (const [nestedKey, nestedValue] of Object.entries(raw as Record<string, unknown>)) {
+        if (normalizeBarcode(nestedValue) === target) return `codigoBarras.${nestedKey}`;
+      }
+      continue;
+    }
+    if (normalizeBarcode(raw) === target) return key;
+  }
+  return null;
+}
+
+/** Explica match/no-match GTIN sem alterar regras de negócio. */
+export function explainGtinMatch(product: unknown, searchedGtin: string): GtinMatchExplanation {
+  const target = normalizeBarcode(searchedGtin);
+  const gtinFields = collectGtinFields(product);
+  const codigoSku = collectSkuField(product);
+
+  if (!target) {
+    return {
+      matched: false,
+      matchReason: 'empty-query',
+      matchedField: null,
+      gtinFields,
+      codigoSku,
+    };
+  }
+
+  if (!product || typeof product !== 'object') {
+    return {
+      matched: false,
+      matchReason: 'invalid-product-payload',
+      matchedField: null,
+      gtinFields,
+      codigoSku,
+    };
+  }
+
+  const record = product as Record<string, unknown>;
+  if (gtinFields.includes(target)) {
+    return {
+      matched: true,
+      matchReason: 'gtin-field-exact-match',
+      matchedField: findGtinMatchedFieldName(record, target),
+      gtinFields,
+      codigoSku,
+    };
+  }
+
+  if (codigoSku === target) {
+    return {
+      matched: false,
+      matchReason: 'codigo-sku-equals-query-but-not-gtin-field',
+      matchedField: null,
+      gtinFields,
+      codigoSku,
+    };
+  }
+
+  return {
+    matched: false,
+    matchReason: gtinFields.length === 0 ? 'candidate-has-no-gtin-fields' : 'no-gtin-field-match',
+    matchedField: null,
+    gtinFields,
+    codigoSku,
+  };
+}
+
+export function logGtinDiagnostic1(event: string, payload: Record<string, unknown>): void {
+  console.info('[bling:gtin-diagnostic-1]', JSON.stringify({ event, ...payload }));
 }
 
 export function logGtinSearchDiagnostic(input: {

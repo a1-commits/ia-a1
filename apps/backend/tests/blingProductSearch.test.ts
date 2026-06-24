@@ -4,10 +4,12 @@ import {
   buildGtinSearchPaths,
   collectGtinFields,
   collectSkuField,
+  explainGtinMatch,
   findExactGtinProduct,
   findExactSkuProduct,
   formatProductDisambiguationResponse,
   formatProductOptionLine,
+  inferQueryModeFromRequest,
   isNumericGtinInput,
   parseBlingStockRequest,
   productMatchesGtin,
@@ -135,6 +137,28 @@ describe('parseBlingStockRequest', () => {
     assert.equal(summary?.gtin, '0751320654120');
     assert.equal(summary?.codigo, 'PORTA-CARTAO');
     assert.ok(summary?.gtinFields.includes('0751320654120'));
+  });
+});
+
+describe('GTIN diagnostic — explainGtinMatch', () => {
+  it('0751320654120 explica match pelo campo gtin', () => {
+    const explanation = explainGtinMatch(portaCartaoProduct, GTIN_SAMPLE);
+    assert.equal(explanation.matched, true);
+    assert.equal(explanation.matchReason, 'gtin-field-exact-match');
+    assert.equal(explanation.matchedField, 'gtin');
+  });
+
+  it('numérico igual ao SKU interno explica no-match', () => {
+    const explanation = explainGtinMatch(wrongSkuStorageProduct, GTIN_SAMPLE);
+    assert.equal(explanation.matched, false);
+    assert.equal(explanation.matchReason, 'codigo-sku-equals-query-but-not-gtin-field');
+    assert.equal(explanation.codigoSku, GTIN_SAMPLE);
+  });
+
+  it('parseBlingStockRequest classifica 0751320654120 como barcode/gtin', () => {
+    const request = parseBlingStockRequest(GTIN_SAMPLE);
+    assert.equal(request?.kind, 'barcode');
+    assert.equal(inferQueryModeFromRequest(request), 'gtin');
   });
 });
 
