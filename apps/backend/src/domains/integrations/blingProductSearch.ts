@@ -495,5 +495,6 @@ export function extractBlingSalePrice(product: unknown): number | null {
 
 export function formatBrazilianSalePrice(price: number | null | undefined): string {
   if (price === null || price === undefined || Number.isNaN(price)) return 'Não informado';
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(price);
+  const formatted = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(price);
+  return formatted.replace(/\u00A0/g, ' ');
 }
