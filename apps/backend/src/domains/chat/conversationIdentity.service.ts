@@ -625,12 +625,22 @@ async function listConversationItemsWithIdentity(
     loadAgentMap(userId, agentIds),
   ]);
 
-  return items.map((item) =>
-    mapConversationToListItem(
-      hydrateConversation(item, contactMap, agentMap),
-      item.messages[0]?.content,
-    ),
-  );
+  return items.flatMap((item) => {
+    try {
+      return [
+        mapConversationToListItem(
+          hydrateConversation(item, contactMap, agentMap),
+          item.messages[0]?.content,
+        ),
+      ];
+    } catch (error) {
+      console.warn(
+        '[conversations] skipping broken conversation item',
+        JSON.stringify({ conversationId: item.id, message: error instanceof Error ? error.message : String(error) }),
+      );
+      return [];
+    }
+  });
 }
 
 type LegacyConversationRow = {

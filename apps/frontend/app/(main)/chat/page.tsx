@@ -6,9 +6,10 @@ import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/EmptyState';
 import { api, ApiError } from '@/lib/api';
+import {
+  PollFailureTracker,
+} from '@agente-mobi/shared';
 import type { Conversation, ConversationIdentity, Message } from '@/types/models';
-
-const POLL_MS = 3000;
 
 type ChatResponse = {
   conversationId: string;
@@ -153,6 +154,9 @@ export default function ChatPage(): React.ReactElement {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const activeIdRef = useRef<string | null>(null);
+  const convPollTrackerRef = useRef(new PollFailureTracker());
+  const msgPollTrackerRef = useRef(new PollFailureTracker());
+  const pollInFlightRef = useRef(0);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -160,103 +164,184 @@ export default function ChatPage(): React.ReactElement {
 
   const conversationsQuery = includeArchived ? '?includeArchived=true' : '';
 
-  const fetchConversations = useCallback(async (): Promise<Conversation[]> => {
-    const res = await api<{ items: Conversation[] }>(`/api/conversations${conversationsQuery}`);
+  const applyPollStatus = useCallback(() => {
+    const showError =
+      convPollTrackerRef.current.shouldShowError() || msgPollTrackerRef.current.shouldShowError();
+    setPollStatus((prev) => {
+      if (showError) return 'error';
+      if (pollInFlightRef.current > 0) return 'updating';
+      return 'live';
+    });
+  }, []);
+
+  const recordPollFailure = useCallback(
+    (tracker: PollFailureTracker, err: unknown) => {
+      if (err instanceof ApiError && err.status === 401) return;
+      tracker.recordFailure();
+      applyPollStatus();
+    },
+    [applyPollStatus],
+  );
+
+  const recordPollSuccess = useCallback(
+    (tracker: PollFailureTracker) => {
+      tracker.recordSuccess();
+      applyPollStatus();
+    },
+    [applyPollStatus],
+  );
+
+  const fetchConversations = useCallback(async (): Promise<Conversation[] | null> => {
+    const res = await api<{ items: Conversation[] } | null>(`/api/conversations${conversationsQuery}`);
+    if (res === null) return null;
     return res.items.filter((c) => c.channel !== 'agent_test');
   }, [conversationsQuery]);
 
-  const loadConversations = useCallback(
-    async (silent = false) => {
+  const applyConversationItems = useCallback((items: Conversation[]) => {
+    setConversations(items);
+    setActiveId((prev) => {
+      if (prev && items.some((c) => c.id === prev)) return prev;
+      return items[0]?.id ?? null;
+    });
+  }, []);
+
+  const refreshConversations = useCallback(
+    async (options?: { silent?: boolean; tracker?: PollFailureTracker }) => {
+      const silent = options?.silent ?? true;
+      const tracker = options?.tracker ?? convPollTrackerRef.current;
       if (!silent) setLoadingList(true);
-      else setPollStatus('updating');
+      pollInFlightRef.current += 1;
+      applyPollStatus();
       try {
         const items = await fetchConversations();
-        setConversations(items);
-        setActiveId((prev) => {
-          if (prev && items.some((c) => c.id === prev)) return prev;
-          return items[0]?.id ?? null;
-        });
-        setPollStatus('live');
-      } catch {
-        setPollStatus('error');
+        if (items !== null) {
+          applyConversationItems(items);
+        }
+        recordPollSuccess(tracker);
+      } catch (err) {
+        recordPollFailure(tracker, err);
+        if (!silent) throw err;
       } finally {
+        pollInFlightRef.current = Math.max(0, pollInFlightRef.current - 1);
+        applyPollStatus();
         if (!silent) setLoadingList(false);
       }
     },
-    [fetchConversations],
+    [applyConversationItems, applyPollStatus, fetchConversations, recordPollFailure, recordPollSuccess],
   );
 
-  const pollConversations = useCallback(async () => {
-    if (deleteBusy || sending) return;
-    setPollStatus('updating');
-    try {
-      const items = await fetchConversations();
-      setConversations(items);
-      const current = activeIdRef.current;
-      if (current && !items.some((c) => c.id === current)) {
-        setActiveId(items[0]?.id ?? null);
-        if (!items[0]) {
-          setMessages([]);
-          setActiveIdentity(null);
-        }
-      }
-      setPollStatus('live');
-    } catch {
-      setPollStatus('error');
-    }
-  }, [deleteBusy, sending, fetchConversations]);
+  const loadConversations = useCallback(
+    async (silent = false) => {
+      await refreshConversations({ silent, tracker: convPollTrackerRef.current });
+    },
+    [refreshConversations],
+  );
 
   const fetchMessages = useCallback(
-    async (id: string): Promise<{ messages: Message[]; identity: ConversationIdentity | null }> => {
-      const res = await api<{ messages: Message[]; identity: ConversationIdentity | null }>(
+    async (id: string): Promise<{ messages: Message[]; identity: ConversationIdentity | null } | null> => {
+      const res = await api<{ messages: Message[]; identity: ConversationIdentity | null } | null>(
         `/api/conversations/${id}/messages`,
       );
+      if (res === null) return null;
       return { messages: res.messages, identity: res.identity ?? null };
     },
     [],
   );
 
-  const loadMessages = useCallback(
-    async (id: string) => {
-      setLoadingMsgs(true);
-      try {
-        const { messages: items, identity } = await fetchMessages(id);
-        setMessages(items);
-        setActiveIdentity(identity);
-        setActiveAgentName(identity?.agentName ?? 'MOBI');
+  const refreshMessages = useCallback(
+    async (id: string, options?: { initial?: boolean; tracker?: PollFailureTracker }) => {
+      const initial = options?.initial ?? false;
+      const tracker = options?.tracker ?? msgPollTrackerRef.current;
+      if (initial) {
+        setLoadingMsgs(true);
         stickToBottomRef.current = true;
+      }
+      const container = scrollContainerRef.current;
+      const shouldStick =
+        initial || stickToBottomRef.current || (container ? isNearBottom(container) : true);
+      pollInFlightRef.current += 1;
+      applyPollStatus();
+      try {
+        const loaded = await fetchMessages(id);
+        if (loaded !== null) {
+          setMessages(loaded.messages);
+          if (loaded.identity) {
+            setActiveIdentity(loaded.identity);
+            setActiveAgentName(loaded.identity.agentName);
+          }
+          if (shouldStick) {
+            requestAnimationFrame(() => {
+              bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+            });
+          }
+        }
+        recordPollSuccess(tracker);
+      } catch (err) {
+        recordPollFailure(tracker, err);
+        if (initial) throw err;
       } finally {
-        setLoadingMsgs(false);
+        pollInFlightRef.current = Math.max(0, pollInFlightRef.current - 1);
+        applyPollStatus();
+        if (initial) setLoadingMsgs(false);
       }
     },
-    [fetchMessages],
+    [applyPollStatus, fetchMessages, recordPollFailure, recordPollSuccess],
   );
 
-  const pollMessages = useCallback(
+  const loadMessages = useCallback(
+    async (id: string) => {
+      await refreshMessages(id, { initial: true, tracker: msgPollTrackerRef.current });
+    },
+    [refreshMessages],
+  );
+
+  const pollConversationsTick = useCallback(async () => {
+    if (deleteBusy || sending) return;
+    const items = await fetchConversations();
+    if (items === null) return;
+    applyConversationItems(items);
+    const current = activeIdRef.current;
+    if (current && !items.some((c) => c.id === current)) {
+      setActiveId(items[0]?.id ?? null);
+      if (!items[0]) {
+        setMessages([]);
+        setActiveIdentity(null);
+      }
+    }
+  }, [applyConversationItems, deleteBusy, fetchConversations, sending]);
+
+  const pollMessagesTick = useCallback(
     async (id: string) => {
       if (deleteBusy || sending) return;
+      const loaded = await fetchMessages(id);
+      if (loaded === null) return;
       const container = scrollContainerRef.current;
       const shouldStick = stickToBottomRef.current || (container ? isNearBottom(container) : true);
-      setPollStatus('updating');
-      try {
-        const { messages: items, identity } = await fetchMessages(id);
-        setMessages(items);
-        if (identity) {
-          setActiveIdentity(identity);
-          setActiveAgentName(identity.agentName);
-        }
-        setPollStatus('live');
-        if (shouldStick) {
-          requestAnimationFrame(() => {
-            bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-          });
-        }
-      } catch {
-        setPollStatus('error');
+      setMessages(loaded.messages);
+      if (loaded.identity) {
+        setActiveIdentity(loaded.identity);
+        setActiveAgentName(loaded.identity.agentName);
+      }
+      if (shouldStick) {
+        requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        });
       }
     },
-    [deleteBusy, sending, fetchMessages],
+    [deleteBusy, fetchMessages, sending],
   );
+
+  const manualRefresh = useCallback(async () => {
+    convPollTrackerRef.current.recordSuccess();
+    msgPollTrackerRef.current.recordSuccess();
+    applyPollStatus();
+    await Promise.all([
+      refreshConversations({ silent: true, tracker: convPollTrackerRef.current }),
+      activeIdRef.current
+        ? refreshMessages(activeIdRef.current, { tracker: msgPollTrackerRef.current })
+        : Promise.resolve(),
+    ]);
+  }, [applyPollStatus, refreshConversations, refreshMessages]);
 
   useEffect(() => {
     void loadConversations(false);
@@ -273,19 +358,101 @@ export default function ChatPage(): React.ReactElement {
   }, [activeId, loadMessages]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      void pollConversations();
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [pollConversations]);
+    let cancelled = false;
+    let timeoutId = 0;
+
+    const schedule = (delayMs: number) => {
+      timeoutId = window.setTimeout(() => void tick(), delayMs);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (deleteBusy || sending) {
+        schedule(convPollTrackerRef.current.nextDelayMs());
+        return;
+      }
+      pollInFlightRef.current += 1;
+      applyPollStatus();
+      try {
+        await pollConversationsTick();
+        recordPollSuccess(convPollTrackerRef.current);
+      } catch (err) {
+        recordPollFailure(convPollTrackerRef.current, err);
+      } finally {
+        pollInFlightRef.current = Math.max(0, pollInFlightRef.current - 1);
+        applyPollStatus();
+        if (!cancelled) schedule(convPollTrackerRef.current.nextDelayMs());
+      }
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    applyPollStatus,
+    deleteBusy,
+    pollConversationsTick,
+    recordPollFailure,
+    recordPollSuccess,
+    sending,
+  ]);
 
   useEffect(() => {
     if (!activeId) return undefined;
-    const timer = window.setInterval(() => {
-      void pollMessages(activeId);
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [activeId, pollMessages]);
+    let cancelled = false;
+    let timeoutId = 0;
+
+    const schedule = (delayMs: number) => {
+      timeoutId = window.setTimeout(() => void tick(), delayMs);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (deleteBusy || sending) {
+        schedule(msgPollTrackerRef.current.nextDelayMs());
+        return;
+      }
+      pollInFlightRef.current += 1;
+      applyPollStatus();
+      try {
+        await pollMessagesTick(activeId);
+        recordPollSuccess(msgPollTrackerRef.current);
+      } catch (err) {
+        recordPollFailure(msgPollTrackerRef.current, err);
+      } finally {
+        pollInFlightRef.current = Math.max(0, pollInFlightRef.current - 1);
+        applyPollStatus();
+        if (!cancelled) schedule(msgPollTrackerRef.current.nextDelayMs());
+      }
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    activeId,
+    applyPollStatus,
+    deleteBusy,
+    pollMessagesTick,
+    recordPollFailure,
+    recordPollSuccess,
+    sending,
+  ]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      void refreshConversations({ silent: true, tracker: convPollTrackerRef.current });
+      const id = activeIdRef.current;
+      if (id) void refreshMessages(id, { tracker: msgPollTrackerRef.current });
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [refreshConversations, refreshMessages]);
 
   useEffect(() => {
     if (stickToBottomRef.current) {
@@ -453,6 +620,14 @@ export default function ChatPage(): React.ReactElement {
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button
+              onClick={() => void manualRefresh()}
+              variant="ghost"
+              className="px-3 py-2 text-xs"
+              title="Forçar atualização da lista e mensagens"
+            >
+              Atualizar
+            </Button>
             <Button
               onClick={() => setSheetOpen(true)}
               variant="ghost"

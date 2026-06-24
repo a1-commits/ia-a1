@@ -43,3 +43,12 @@ export const ProposalStatus = {
   LOST: 'LOST',
 } as const;
 export type ProposalStatus = (typeof ProposalStatus)[keyof typeof ProposalStatus];
+
+export {
+  API_POLL_TIMEOUT_MS,
+  POLL_BACKOFF_MS,
+  POLL_BASE_MS,
+  POLL_ERROR_THRESHOLD,
+  PollFailureTracker,
+  isTransientPollError,
+} from './pollResilience';

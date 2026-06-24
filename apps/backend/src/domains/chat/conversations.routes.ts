@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ContextType, MessageRole } from '@prisma/client';
+import { ContextType, MessageRole, type Message } from '@prisma/client';
 import { z } from 'zod';
 import OpenAI from 'openai';
 import path from 'path';
@@ -12,6 +12,7 @@ import { analyzeLeadConversation } from '../../ai/lead-decision-engine';
 import { createSalesHandoff, getSalesHandoffForConversation } from '../sales/handoff.service';
 import { createImageJob, getLatestImageJobForConversation, startImageJob } from './imageGeneration.service';
 import { listConversationItems, getConversationForPolling } from './conversationIdentity.service';
+import { logPrismaRouteError } from '../../lib/prismaRouteLog';
 
 export const conversationsRouter = Router();
 conversationsRouter.use(authMiddleware);
@@ -348,6 +349,11 @@ conversationsRouter.get('/', async (req, res, next) => {
     const items = await listConversationItems(userId, includeArchived);
     res.json({ items });
   } catch (e) {
+    logPrismaRouteError({
+      route: 'GET /api/conversations',
+      userId: req.userId,
+      error: e,
+    });
     next(e);
   }
 });
@@ -436,16 +442,33 @@ conversationsRouter.get('/:id/messages', async (req, res, next) => {
       res.status(404).json({ error: 'Conversa não encontrada' });
       return;
     }
-    const messages = await prisma.message.findMany({
-      where: { conversationId: id },
-      orderBy: { createdAt: 'asc' },
-    });
+    let messages: Message[];
+    try {
+      messages = await prisma.message.findMany({
+        where: { conversationId: id },
+        orderBy: { createdAt: 'asc' },
+      });
+    } catch (error) {
+      logPrismaRouteError({
+        route: 'GET /api/conversations/:id/messages',
+        userId,
+        conversationId: id,
+        error,
+      });
+      messages = [];
+    }
     res.json({
       conversation: loaded.conversation,
       messages,
       identity: loaded.identity,
     });
   } catch (e) {
+    logPrismaRouteError({
+      route: 'GET /api/conversations/:id/messages',
+      userId: req.userId,
+      conversationId: req.params.id,
+      error: e,
+    });
     next(e);
   }
 });

@@ -1,6 +1,7 @@
 import { ContextType, MessageRole, type Agent } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { generateAssistantReply, syncAiRuntimePreference } from '../ai/aiService';
+import { generateAssistantReply, syncAiRuntimePreference, AiUnavailableError } from '../ai/aiService';
+import type { ChatMessage } from '../ai/aiProvider.types';
 import { buildDynamicAgentPrompt } from '../agents/agentPrompt.service';
 import { resolveAgentForMessage } from '../agents/agentResolver.service';
 import { touchContactInteraction } from '../contacts/contact.service';
@@ -56,12 +57,13 @@ export type ProcessAgentMessageInput = {
   assignedAgentId?: string | null;
   forceNew?: boolean;
   agentTest?: boolean;
+  skipAssistantReply?: boolean;
 };
 
 export type ProcessAgentMessageOutput = {
   conversationId: string;
   userMessage: { id: string; conversationId: string; role: MessageRole; content: string; createdAt: Date };
-  assistantMessage: {
+  assistantMessage?: {
     id: string;
     conversationId: string;
     role: MessageRole;
@@ -101,7 +103,7 @@ type TurnContext = {
 async function completeTurn(input: {
   turn: TurnContext;
   userMsg: ProcessAgentMessageOutput['userMessage'];
-  assistantMsg: ProcessAgentMessageOutput['assistantMessage'];
+  assistantMsg: NonNullable<ProcessAgentMessageOutput['assistantMessage']>;
   agentMeta: AgentMeta;
   agent: Pick<Agent, 'id' | 'name'>;
 }): Promise<ProcessAgentMessageOutput> {
@@ -157,6 +159,40 @@ async function resolveTurnAgent(
   });
 }
 
+const AI_REPLY_RETRY_MS = [1500, 2500, 4000] as const;
+const AI_REPLY_MAX_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function generateReplyWithRetry(promptMessages: ChatMessage[]): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= AI_REPLY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const raw = await generateAssistantReply(promptMessages);
+      const replyText = clampMinimalReply(
+        sanitizeAgentClientReply(repairBrokenAccents(raw)),
+      );
+      if (!replyText.trim()) {
+        console.warn('[chat:ai] empty response', { attempt });
+        throw new AiUnavailableError('Resposta vazia do modelo de IA');
+      }
+      return replyText;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[chat:ai] reply attempt failed', { attempt, message });
+      if (attempt < AI_REPLY_MAX_ATTEMPTS) {
+        await sleep(AI_REPLY_RETRY_MS[attempt - 1] ?? 4000);
+      }
+    }
+  }
+  if (lastError instanceof AiUnavailableError) throw lastError;
+  if (lastError instanceof Error) throw lastError;
+  throw new AiUnavailableError('IA indisponível no momento');
+}
+
 async function finalizeRouterAgentReply(input: {
   channel: AgentPromptChannel;
   turn: TurnContext;
@@ -199,11 +235,21 @@ async function finalizeRouterAgentReply(input: {
     contactDisplayName,
   });
 
-  const replyText = clampMinimalReply(
-    sanitizeAgentClientReply(
-      repairBrokenAccents(await generateAssistantReply(promptMessages)),
-    ),
-  );
+  let replyText: string;
+  try {
+    replyText = await generateReplyWithRetry(promptMessages);
+  } catch (error) {
+    const reason = error instanceof AiUnavailableError ? error.message : 'IA indisponível no momento';
+    console.error('[chat:ai] reply failed after retries', {
+      conversationId: turn.conversationId,
+      reason,
+    });
+    replyText =
+      `⚠️ Não consegui responder automaticamente agora (${reason}). Sua mensagem foi registrada — tentaremos novamente em breve.`.slice(
+        0,
+        12_000,
+      );
+  }
 
   const assistantMsg = await prisma.message.create({
     data: {
@@ -582,6 +628,34 @@ export async function processAgentMessage(
   }
 
   const finalAgent = await resolveTurnAgent(userId, input, activeConversation);
+
+  if (input.skipAssistantReply) {
+    const conversationIdentity = await syncConversationAfterTurn({
+      conversationId,
+      userId,
+      lastMessageContent: input.content,
+      agent: finalAgent,
+      contactId: turn.contactId,
+      contactName: turn.contactDisplayName,
+      contactIdentifier: turn.contactIdentifier,
+      channel: storageChannel,
+    });
+    return {
+      conversationId,
+      userMessage: userMsg,
+      agentMeta: routerAgentMeta({
+        interpretation: {
+          context: ContextType.GERAL,
+          kind: 'message',
+          confidence: 1,
+          rationale: 'Mensagem registrada sem resposta automática.',
+        },
+        routerCategory: null,
+      }),
+      agentName: finalAgent.name,
+      conversationIdentity,
+    };
+  }
 
   return finalizeRouterAgentReply({
     channel,

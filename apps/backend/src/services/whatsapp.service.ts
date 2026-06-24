@@ -976,8 +976,7 @@ class WhatsAppService {
         }
       }
       if (!isAdmin && this.shouldThrottle(message.from)) {
-        console.log('[whatsapp] mensagem ignorada por intervalo mínimo (anti-spam)');
-        return;
+        console.log('[whatsapp] anti-spam: mensagem será salva sem resposta imediata');
       }
 
       const logPrefix = isAdmin ? '[whatsapp] operador' : '[whatsapp] cliente';
@@ -994,8 +993,7 @@ class WhatsAppService {
       }
 
       if (!isAdmin && this.status.autoReplyMode === 'manual') {
-        console.log('[whatsapp] modo manual ativo; sem resposta automática para clientes');
-        return;
+        console.log('[whatsapp] modo manual: mensagem será salva sem resposta automática');
       }
 
       const userId = await this.resolveAgentUserId();
@@ -1008,6 +1006,10 @@ class WhatsAppService {
 
       const customerName = !isAdmin ? await this.resolveSenderDisplayName(message) : undefined;
 
+      const skipAutoReply =
+        !isAdmin &&
+        (this.status.autoReplyMode === 'manual' || this.shouldThrottle(message.from));
+
       const flow = await processAgentMessage({
         userId,
         content: body,
@@ -1018,8 +1020,13 @@ class WhatsAppService {
         customerWhatsappId: !isAdmin ? message.from : undefined,
         customerName: customerName ?? undefined,
         assignedAgentId: null,
+        skipAssistantReply: skipAutoReply,
       });
       this.conversationByJid.set(message.from, flow.conversationId);
+
+      if (skipAutoReply || !flow.assistantMessage) {
+        return;
+      }
 
       const responseText = flow.assistantMessage.content.slice(0, 3500);
       await message.reply(responseText);

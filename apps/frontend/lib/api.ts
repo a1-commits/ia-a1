@@ -2,11 +2,11 @@ import {
   clearRefreshToken,
   clearToken,
   getRefreshToken,
-  getToken,
   setRefreshToken,
   setToken,
 } from './auth-storage';
 import { getApiBase } from './api-base';
+import { API_POLL_TIMEOUT_MS } from '@agente-mobi/shared';
 
 const AUTH_PATHS_NO_REFRESH = ['/api/auth/login', '/api/auth/register', '/api/auth/refresh'];
 
@@ -52,9 +52,19 @@ async function tryRefreshAccess(): Promise<boolean> {
   }
 }
 
+function redirectToLogin(): void {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname.startsWith('/login')) return;
+  window.location.href = '/login';
+}
+
 export async function api<T>(
   path: string,
-  init?: RequestInit & { token?: string | null; skipAuthRefresh?: boolean },
+  init?: RequestInit & {
+    token?: string | null;
+    skipAuthRefresh?: boolean;
+    timeoutMs?: number;
+  },
 ): Promise<T> {
   const buildHeaders = (): Headers => {
     const headers = new Headers(init?.headers);
@@ -70,10 +80,32 @@ export async function api<T>(
     return headers;
   };
 
-  const doFetch = (): Promise<Response> =>
-    fetch(`${getApiBase()}${path}`, { ...init, headers: buildHeaders() });
+  const timeoutMs = init?.timeoutMs ?? API_POLL_TIMEOUT_MS;
 
-  let res = await doFetch();
+  const doFetch = (): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    const userSignal = init?.signal;
+    if (userSignal) {
+      if (userSignal.aborted) controller.abort();
+      else userSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    return fetch(`${getApiBase()}${path}`, {
+      ...init,
+      headers: buildHeaders(),
+      signal: controller.signal,
+    }).finally(() => window.clearTimeout(timeoutId));
+  };
+
+  let res: Response;
+  try {
+    res = await doFetch();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiError('Tempo esgotado na conexão com o servidor', 408);
+    }
+    throw new ApiError('Falha de rede ao contactar o servidor', 0);
+  }
 
   if (
     res.status === 401 &&
@@ -82,8 +114,25 @@ export async function api<T>(
   ) {
     const refreshed = await tryRefreshAccess();
     if (refreshed) {
-      res = await doFetch();
+      try {
+        res = await doFetch();
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw new ApiError('Tempo esgotado na conexão com o servidor', 408);
+        }
+        throw new ApiError('Falha de rede ao contactar o servidor', 0);
+      }
     }
+    if (res.status === 401) {
+      clearRefreshToken();
+      clearToken();
+      redirectToLogin();
+      throw new ApiError('Sessão expirada', 401);
+    }
+  }
+
+  if (res.status === 304) {
+    return null as T;
   }
 
   if (!res.ok) {
