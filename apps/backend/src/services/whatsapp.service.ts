@@ -23,6 +23,13 @@ import {
   type ErpNaturalIntent,
 } from '../domains/integrations/olistWhatsAppAgent.service';
 import { getImageJobById } from '../domains/chat/imageGeneration.service';
+import { upsertContactFromWhatsApp } from '../domains/contacts/contact.service';
+import {
+  isReplyThrottled,
+  logWhatsappFlowHotfix,
+  shouldSkipAutoReplyForCustomer,
+  WHATSAPP_AI_FALLBACK_REPLY,
+} from './whatsappFlow.helpers';
 
 type WhatsAppRuntimeStatus = {
   enabled: boolean;
@@ -799,12 +806,68 @@ class WhatsAppService {
     }, intervalMs);
   }
 
-  private shouldThrottle(jid: string): boolean {
-    const now = Date.now();
-    const prev = this.lastReplyAtByJid.get(jid) ?? 0;
-    if (now - prev < env.WHATSAPP_MIN_REPLY_INTERVAL_MS) return true;
-    this.lastReplyAtByJid.set(jid, now);
-    return false;
+  private markReplySent(jid: string): void {
+    this.lastReplyAtByJid.set(jid, Date.now());
+  }
+
+  private logFlowReturn(reason: string, extra: Record<string, unknown> = {}): void {
+    logWhatsappFlowHotfix('return.reason', { reason, ...extra });
+  }
+
+  private async resolveCustomerContact(input: {
+    userId: string;
+    senderNumber: string | null;
+    whatsappId: string;
+    customerName?: string;
+    lastMessage: string;
+  }): Promise<{
+    contactId: string;
+    agentId: string | null;
+    agentName: string | null;
+    contactPaused: boolean;
+    contactHasActiveAgent: boolean;
+    contactStatusPaused: boolean;
+  } | null> {
+    if (!input.senderNumber && !input.whatsappId) return null;
+
+    const contact = await upsertContactFromWhatsApp({
+      userId: input.userId,
+      number: input.senderNumber ?? input.whatsappId,
+      whatsappId: input.whatsappId,
+      name: input.customerName,
+      lastMessage: input.lastMessage,
+      lastInteractionAt: new Date(),
+      paused: input.senderNumber ? this.pausedByNumber.has(input.senderNumber) : false,
+    });
+
+    const agent = contact.agentId
+      ? await prisma.agent.findFirst({
+          where: {
+            id: contact.agentId,
+            userId: input.userId,
+            isActive: true,
+          },
+          select: { id: true, name: true },
+        })
+      : null;
+
+    return {
+      contactId: contact.id,
+      agentId: agent?.id ?? null,
+      agentName: agent?.name ?? contact.agentName,
+      contactPaused: input.senderNumber ? this.pausedByNumber.has(input.senderNumber) : false,
+      contactHasActiveAgent: Boolean(agent),
+      contactStatusPaused: contact.status === 'pausado',
+    };
+  }
+
+  private async sendWhatsappReply(message: Message, text: string, jid: string): Promise<void> {
+    logWhatsappFlowHotfix('reply.send.start', { to: jid });
+    await message.reply(text.slice(0, 3500));
+    this.markReplySent(jid);
+    this.lastBotReplyFingerprintByJid.set(jid, `${jid}:${text.trim()}`);
+    logWhatsappFlowHotfix('reply.send.success', { to: jid });
+    console.log('[whatsapp] resposta enviada');
   }
 
   private consumeErpQuota(jid: string): boolean {
@@ -823,16 +886,36 @@ class WhatsAppService {
   }
 
   private async onIncomingMessage(message: Message): Promise<void> {
+    const jid = message.from;
+    const isGroup = Boolean(jid?.endsWith('@g.us'));
     try {
-      if (!env.WHATSAPP_ENABLED) return;
+      if (!env.WHATSAPP_ENABLED) {
+        this.logFlowReturn('whatsapp_disabled');
+        return;
+      }
       const isSelfChat = message.fromMe && message.to === message.from;
       if (message.fromMe && !isSelfChat) {
+        this.logFlowReturn('from_me_external');
         console.log('[whatsapp] ignorando mensagem enviada pela própria conta (chat externo)');
         return;
       }
-      if (!this.isAllowedSender(message)) return;
+      if (!this.isAllowedSender(message)) {
+        this.logFlowReturn('sender_not_allowed', { jid });
+        return;
+      }
       const isVoice = this.isVoiceMessage(message);
       const body = await this.resolveIncomingText(message);
+      const senderForLog = this.senderNumber(message);
+      const isAdmin = this.isAdminSender(message);
+
+      logWhatsappFlowHotfix('received', {
+        sender: senderForLog ?? jid,
+        bodyPreview: body?.slice(0, 120) ?? null,
+        isSelf: isSelfChat,
+        isGroup,
+        isAdmin,
+      });
+
       if (!body) {
         if (isVoice) {
           await message.reply(
@@ -840,15 +923,14 @@ class WhatsAppService {
           );
           console.log('[whatsapp] fallback enviado: falha na transcrição de áudio');
         }
+        this.logFlowReturn('empty_body', { jid });
         console.log('[whatsapp] ignorando mensagem vazia');
         return;
       }
 
-      const isAdmin = this.isAdminSender(message);
       const firstLine = body.trim().split(/\n/)[0]?.trim().toLowerCase() ?? '';
       const isCommand = firstLine.startsWith('!');
       const adminRef = this.effectiveAdminNumber();
-      const senderForLog = this.senderNumber(message);
       console.log(
         `[whatsapp] diag-admin sender=${senderForLog ?? 'n/a'} adminRef=${adminRef ?? 'n/a'} isSelf=${isSelfChat} isAdmin=${isAdmin}`,
       );
@@ -965,18 +1047,17 @@ class WhatsAppService {
       }
 
       if (await this.tryHandleAdminQuickCommands(message, body)) {
+        this.logFlowReturn('admin_command');
         return;
       }
 
       if (isSelfChat) {
         const fp = `${message.from}:${body}`;
         if (this.lastBotReplyFingerprintByJid.get(message.from) === fp) {
+          this.logFlowReturn('self_echo');
           console.log('[whatsapp] ignorando eco da própria resposta para evitar loop');
           return;
         }
-      }
-      if (!isAdmin && this.shouldThrottle(message.from)) {
-        console.log('[whatsapp] anti-spam: mensagem será salva sem resposta imediata');
       }
 
       const logPrefix = isAdmin ? '[whatsapp] operador' : '[whatsapp] cliente';
@@ -992,12 +1073,14 @@ class WhatsAppService {
         });
       }
 
-      if (!isAdmin && this.status.autoReplyMode === 'manual') {
-        console.log('[whatsapp] modo manual: mensagem será salva sem resposta automática');
-      }
+      logWhatsappFlowHotfix('accepted', {
+        sender: senderForLog ?? jid,
+        phone: senderNumber,
+      });
 
       const userId = await this.resolveAgentUserId();
       if (!userId) {
+        this.logFlowReturn('agent_user_missing', { email: env.WHATSAPP_AGENT_USER_EMAIL });
         console.log(
           `[whatsapp] usuário "${env.WHATSAPP_AGENT_USER_EMAIL}" não encontrado para rotear conversa`,
         );
@@ -1005,37 +1088,128 @@ class WhatsAppService {
       }
 
       const customerName = !isAdmin ? await this.resolveSenderDisplayName(message) : undefined;
+      let assignedAgentId: string | null = null;
+      let contactIdForLog: string | null = null;
+      let contactHasActiveAgent = false;
+      let contactPaused = senderNumber ? this.pausedByNumber.has(senderNumber) : false;
+      let contactStatusPaused = false;
 
-      const skipAutoReply =
-        !isAdmin &&
-        (this.status.autoReplyMode === 'manual' || this.shouldThrottle(message.from));
+      if (!isAdmin) {
+        const contact = await this.resolveCustomerContact({
+          userId,
+          senderNumber,
+          whatsappId: message.from,
+          customerName: customerName ?? undefined,
+          lastMessage: body.slice(0, 200),
+        });
+        if (contact) {
+          contactIdForLog = contact.contactId;
+          assignedAgentId = contact.agentId;
+          contactHasActiveAgent = contact.contactHasActiveAgent;
+          contactPaused = contact.contactPaused;
+          contactStatusPaused = contact.contactStatusPaused;
+          logWhatsappFlowHotfix('contact.ready', {
+            contactId: contact.contactId,
+            phone: senderNumber,
+          });
+          logWhatsappFlowHotfix('agent.ready', {
+            agentId: contact.agentId,
+            agentName: contact.agentName,
+          });
+        }
+      }
 
-      const flow = await processAgentMessage({
-        userId,
-        content: body,
-        conversationId: this.conversationByJid.get(message.from),
-        channel: isAdmin ? 'whatsapp_admin' : 'whatsapp_customer',
-        conversationTitle: isAdmin ? 'WhatsApp · operador' : undefined,
-        customerPhone: !isAdmin ? senderNumber ?? undefined : undefined,
-        customerWhatsappId: !isAdmin ? message.from : undefined,
-        customerName: customerName ?? undefined,
-        assignedAgentId: null,
-        skipAssistantReply: skipAutoReply,
+      const skipDecision = isAdmin
+        ? { skip: false, reason: null }
+        : shouldSkipAutoReplyForCustomer({
+            autoReplyMode: this.status.autoReplyMode,
+            contactPaused,
+            contactStatusPaused,
+            contactHasActiveAgent,
+            replyThrottled: isReplyThrottled(
+              message.from,
+              this.lastReplyAtByJid,
+              env.WHATSAPP_MIN_REPLY_INTERVAL_MS,
+            ),
+          });
+
+      if (skipDecision.skip && skipDecision.reason) {
+        this.logFlowReturn(skipDecision.reason, { jid: message.from, phone: senderNumber });
+      }
+
+      logWhatsappFlowHotfix('process.start', {
+        conversationId: this.conversationByJid.get(message.from) ?? null,
+        agentId: assignedAgentId,
+        skipAssistantReply: skipDecision.skip,
       });
-      this.conversationByJid.set(message.from, flow.conversationId);
 
-      if (skipAutoReply || !flow.assistantMessage) {
+      let flow;
+      try {
+        flow = await processAgentMessage({
+          userId,
+          content: body,
+          conversationId: this.conversationByJid.get(message.from),
+          channel: isAdmin ? 'whatsapp_admin' : 'whatsapp_customer',
+          conversationTitle: isAdmin ? 'WhatsApp · operador' : undefined,
+          customerPhone: !isAdmin ? senderNumber ?? undefined : undefined,
+          customerWhatsappId: !isAdmin ? message.from : undefined,
+          customerName: customerName ?? undefined,
+          assignedAgentId,
+          skipAssistantReply: skipDecision.skip,
+        });
+      } catch (processError) {
+        const errMessage = processError instanceof Error ? processError.message : String(processError);
+        const errStack = processError instanceof Error ? processError.stack : undefined;
+        logWhatsappFlowHotfix('exception', { message: errMessage, stack: errStack ?? null, phase: 'processAgentMessage' });
+        console.error('[whatsapp] falha em processAgentMessage:', processError);
+        if (!isAdmin && !skipDecision.skip) {
+          await this.sendWhatsappReply(message, WHATSAPP_AI_FALLBACK_REPLY, message.from);
+        }
         return;
       }
 
+      this.conversationByJid.set(message.from, flow.conversationId);
+
+      logWhatsappFlowHotfix('conversation.ready', {
+        conversationId: flow.conversationId,
+        contactId: contactIdForLog,
+      });
+      logWhatsappFlowHotfix('userMessage.saved', {
+        messageId: flow.userMessage.id,
+        conversationId: flow.conversationId,
+      });
+      logWhatsappFlowHotfix('process.finish', {
+        conversationId: flow.conversationId,
+      });
+
+      if (skipDecision.skip || !flow.assistantMessage) {
+        if (skipDecision.skip) {
+          console.log(`[whatsapp] mensagem salva; resposta automática adiada (${skipDecision.reason})`);
+        }
+        return;
+      }
+
+      logWhatsappFlowHotfix('reply.saved', {
+        messageId: flow.assistantMessage.id,
+      });
+
       const responseText = flow.assistantMessage.content.slice(0, 3500);
-      await message.reply(responseText);
-      this.lastBotReplyFingerprintByJid.set(message.from, `${message.from}:${responseText.trim()}`);
-      console.log('[whatsapp] resposta enviada');
+      await this.sendWhatsappReply(message, responseText, message.from);
     } catch (error) {
+      const errMessage = error instanceof Error ? error.message : String(error);
+      const errStack = error instanceof Error ? error.stack : undefined;
+      logWhatsappFlowHotfix('exception', { message: errMessage, stack: errStack ?? null, phase: 'onIncomingMessage' });
       this.status.lastError =
         error instanceof Error ? `falha no processamento da mensagem: ${error.message}` : 'erro interno';
-      console.log(`[whatsapp] erro: ${this.status.lastError}`);
+      console.error('[whatsapp] erro:', error);
+      try {
+        if (jid && !this.isAdminSender(message)) {
+          await message.reply(WHATSAPP_AI_FALLBACK_REPLY);
+          this.markReplySent(jid);
+        }
+      } catch (replyError) {
+        console.error('[whatsapp] falha ao enviar fallback:', replyError);
+      }
     }
   }
 }
