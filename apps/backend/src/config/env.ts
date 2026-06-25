@@ -82,6 +82,17 @@ const envSchema = z.object({
   BLING_DEFAULT_SCOPES: z.string().default(''),
   BLING_STORE_TIMEOUT_MS: z.coerce.number().default(8000),
   BLING_MAX_CONNECTIONS_PER_AGENT: z.coerce.number().default(4),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_CALLBACK_URL: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim() ? v : 'http://localhost:3000/api/auth/google/callback')),
+  /** Origem do frontend para redirect pós-login Google (sem barra final). */
+  WEB_BASE_URL: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim() ? v.replace(/\/+$/, '') : 'http://localhost:3000')),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -103,4 +114,10 @@ export function isOpenAiConfigured(): boolean {
   if (OPENAI_PLACEHOLDER_KEYS.has(key)) return false;
   if (/^(sk-test|sk-fake|sk-placeholder)/i.test(key)) return false;
   return true;
+}
+
+export function isGoogleOAuthConfigured(): boolean {
+  const clientId = (process.env.GOOGLE_CLIENT_ID ?? '').trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET ?? '').trim();
+  return Boolean(clientId && clientSecret);
 }

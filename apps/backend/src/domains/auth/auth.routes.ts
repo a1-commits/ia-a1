@@ -3,6 +3,15 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { hashOpaqueToken } from '../../lib/tokenUtils';
+import { isGoogleOAuthConfigured } from '../../config/env';
+import {
+  buildFrontendErrorRedirect,
+  buildFrontendSuccessRedirect,
+  buildGoogleAuthRedirectUrl,
+  completeGoogleOAuthLogin,
+  GoogleOAuthError,
+  renderFrontendRedirectHtml,
+} from './googleOAuth.service';
 import { issueSession } from './issueSession';
 
 export const authRouter = Router();
@@ -33,6 +42,52 @@ function jsonSession(session: Awaited<ReturnType<typeof issueSession>>) {
     user: session.user,
   };
 }
+
+/** Inicia login social via Google OAuth. */
+authRouter.get('/google', (_req, res, next) => {
+  try {
+    if (!isGoogleOAuthConfigured()) {
+      res.status(503).json({ error: 'Login com Google não configurado no servidor.' });
+      return;
+    }
+    res.redirect(buildGoogleAuthRedirectUrl());
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Callback OAuth do Google: cria/vincula usuário e redireciona ao frontend autenticado. */
+authRouter.get('/google/callback', async (req, res, next) => {
+  try {
+    const oauthError = typeof req.query.error === 'string' ? req.query.error : null;
+    if (oauthError) {
+      const description =
+        typeof req.query.error_description === 'string' ? req.query.error_description : oauthError;
+      res
+        .status(400)
+        .send(renderFrontendRedirectHtml(buildFrontendErrorRedirect(description)));
+      return;
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    if (!code || !state) {
+      res
+        .status(400)
+        .send(renderFrontendRedirectHtml(buildFrontendErrorRedirect('Callback Google inválido.')));
+      return;
+    }
+
+    const session = await completeGoogleOAuthLogin({ code, state });
+    res.send(renderFrontendRedirectHtml(buildFrontendSuccessRedirect(session)));
+  } catch (e) {
+    if (e instanceof GoogleOAuthError) {
+      res.status(400).send(renderFrontendRedirectHtml(buildFrontendErrorRedirect(e.message)));
+      return;
+    }
+    next(e);
+  }
+});
 
 authRouter.post('/register', async (req, res, next) => {
   try {
