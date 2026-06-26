@@ -56,6 +56,49 @@ export function buildPeraStockExcelRows(data: BlingMultiStoreStockResponse): Per
   return rows;
 }
 
+function resolveProductName(result: BlingMultiStoreStockResponse['results'][number]): string {
+  return (
+    result.stores.find((store) => store.found && store.productName)?.productName ??
+    result.stores.find((store) => store.productName)?.productName ??
+    ''
+  );
+}
+
+function formatPivotStockCell(store: BlingStockStoreResult): string | number {
+  if (store.situation === 'ERRO_CONSULTA') return 'Erro';
+  if (!store.found) return 'N/A';
+  return asInteger(store.currentStock);
+}
+
+function formatPivotMinimumCell(store: BlingStockStoreResult): string | number {
+  if (store.situation === 'ERRO_CONSULTA' || !store.found) return '';
+  return asInteger(store.minimumStock);
+}
+
+export function buildPeraStockExcelPivotRows(
+  data: BlingMultiStoreStockResponse,
+): Array<Record<string, string | number>> {
+  const storeLabels = [...data.stores]
+    .map((store) => store.storeLabel)
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+  return data.results.map((result) => {
+    const storesByLabel = new Map(result.stores.map((store) => [store.storeLabel, store]));
+    const row: Record<string, string | number> = {
+      codigo: result.barcode,
+      produto: resolveProductName(result),
+    };
+
+    for (const label of storeLabels) {
+      const store = storesByLabel.get(label);
+      row[label] = store ? formatPivotStockCell(store) : 'N/A';
+      row[`min_${label}`] = store ? formatPivotMinimumCell(store) : '';
+    }
+
+    return row;
+  });
+}
+
 export function countFoundBarcodes(data: BlingMultiStoreStockResponse): number {
   return data.results.filter((result) =>
     result.stores.some((store) => store.found && store.situation !== 'ERRO_CONSULTA'),
@@ -84,19 +127,23 @@ export async function buildPeraStockExcelBuffer(data: BlingMultiStoreStockRespon
   workbook.created = new Date();
 
   const sheet = workbook.addWorksheet('Estoque');
-  sheet.columns = [
-    { header: 'Código GTIN/EAN', key: 'barcode', width: 20 },
-    { header: 'Loja', key: 'storeLabel', width: 14 },
-    { header: 'Produto', key: 'productName', width: 42 },
-    { header: 'Preço', key: 'price', width: 16 },
-    { header: 'Estoque', key: 'currentStock', width: 12 },
-    { header: 'Estoque mínimo', key: 'minimumStock', width: 18 },
-    { header: 'Situação', key: 'situation', width: 40 },
+  const storeLabels = [...data.stores]
+    .map((store) => store.storeLabel)
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+  const columns: ExcelJS.Column[] = [
+    { header: 'Código', key: 'codigo', width: 20 },
+    { header: 'Produto', key: 'produto', width: 42 },
+    ...storeLabels.flatMap((label) => [
+      { header: label, key: label, width: 12 },
+      { header: `Mín ${label}`, key: `min_${label}`, width: 12 },
+    ]),
   ];
 
+  sheet.columns = columns;
   sheet.getRow(1).font = { bold: true };
 
-  for (const row of buildPeraStockExcelRows(data)) {
+  for (const row of buildPeraStockExcelPivotRows(data)) {
     sheet.addRow(row);
   }
 

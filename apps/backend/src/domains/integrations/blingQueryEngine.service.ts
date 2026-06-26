@@ -15,7 +15,7 @@ import {
   parseBlingStockRequest,
 } from './blingProductSearch';
 import type { BlingMultiStoreStockResponse, BlingStockByBarcodeResult } from './bling.types';
-import type { BlingProductOptionRow, BlingApiErrorKind, BlingStructuredResult } from './blingStructured.types';
+import type { BlingProductOptionRow, BlingApiErrorKind, BlingStructuredResult, BlingStockProductBlock } from './blingStructured.types';
 import {
   clearProductDisambiguation,
   saveProductDisambiguation,
@@ -142,6 +142,28 @@ async function resolveNameSearchEmptyResult(input: {
   return { kind: 'empty', intent: input.intent, query: input.nameQuery };
 }
 
+function sortEstoquesByLoja<T extends { loja: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => a.loja.localeCompare(b.loja, 'pt-BR'));
+}
+
+function mapResultToProductBlock(
+  result: BlingStockByBarcodeResult,
+  onlyBelowMinimum: boolean,
+): BlingStockProductBlock {
+  const estoques = sortEstoquesByLoja(flattenStockResults([result], onlyBelowMinimum));
+  const anyFound = result.stores.some((store) => store.found);
+  const productName =
+    result.stores.find((s) => s.found && s.productName)?.productName ??
+    result.stores.find((s) => s.productName)?.productName ??
+    (anyFound ? 'Produto' : 'Produto não encontrado');
+
+  return {
+    codigoBarras: result.barcode,
+    produto: productName,
+    estoques,
+  };
+}
+
 function mapStockResponse(
   intent: AgentIntent,
   data: BlingMultiStoreStockResponse,
@@ -153,36 +175,32 @@ function mapStockResponse(
     return { kind: 'api_error', intent, errorKind: apiError, query: primaryBarcode };
   }
 
-  const primaryResult = data.results[0];
-  if (!primaryResult) {
+  if (data.results.length === 0) {
     if (data.stores.length === 0) {
       return { kind: 'api_error', intent, errorKind: 'unavailable', query: primaryBarcode };
     }
     return { kind: 'empty', intent, query: primaryBarcode };
   }
 
-  const allRows = flattenStockResults(data.results, filterBelowMinimum);
-  if (allRows.length === 0) {
+  const produtos = data.results.map((result) => mapResultToProductBlock(result, filterBelowMinimum));
+  const hasAnyRow = produtos.some((item) => item.estoques.length > 0);
+  if (!hasAnyRow) {
     if (data.stores.length === 0) {
       return { kind: 'api_error', intent, errorKind: 'unavailable', query: primaryBarcode };
     }
     return { kind: 'empty', intent, query: primaryBarcode };
   }
-
-  const productName =
-    primaryResult.stores.find((s) => s.found && s.productName)?.productName ??
-    primaryResult.stores.find((s) => s.productName)?.productName ??
-    'Produto';
 
   if (filterBelowMinimum) {
+    const primary = produtos[0]!;
     return {
       kind: 'below_minimum',
       intent,
-      produto: productName,
-      itens: allRows.map((row) => ({
+      produto: primary.produto,
+      itens: primary.estoques.map((row) => ({
         ...row,
-        produto: productName,
-        codigoBarras: primaryBarcode,
+        produto: primary.produto,
+        codigoBarras: primary.codigoBarras,
       })),
     };
   }
@@ -190,9 +208,7 @@ function mapStockResponse(
   return {
     kind: 'stock',
     intent,
-    produto: productName,
-    codigoBarras: primaryBarcode,
-    estoques: allRows,
+    produtos,
   };
 }
 
@@ -391,19 +407,18 @@ export async function executeBlingQuery(input: {
     barcodes,
   });
 
-  if (intent === 'RELATORIO' && shouldUsePeraStockSummary(data.barcodes.length)) {
+  const mapped = mapStockResponse(intent, data, filterBelowMinimum);
+
+  if (shouldUsePeraStockSummary(data.barcodes.length) && mapped.kind === 'stock') {
     let downloadUrl: string | null = null;
+    let excelGenerationFailed = false;
     try {
       downloadUrl = await createPeraStockExcelExport({ userId, data });
     } catch {
-      downloadUrl = null;
+      excelGenerationFailed = true;
     }
-    const mapped = mapStockResponse(intent, data, filterBelowMinimum);
-    if (mapped.kind === 'stock') {
-      return { ...mapped, downloadUrl };
-    }
-    return mapped;
+    return { ...mapped, downloadUrl, excelGenerationFailed };
   }
 
-  return mapStockResponse(intent, data, filterBelowMinimum);
+  return mapped;
 }

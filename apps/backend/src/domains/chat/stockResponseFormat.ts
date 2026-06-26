@@ -1,0 +1,129 @@
+import type {
+  BlingStockBulkStats,
+  BlingStockProductBlock,
+  BlingStoreStockRow,
+} from '../integrations/blingStructured.types';
+import { formatBrazilianSalePrice } from '../integrations/blingProductSearch';
+
+export const STOCK_BLOCK_SEPARATOR = '━━━━━━━━━━━━━━';
+
+function asInteger(value: number | null | undefined): number {
+  if (value === null || value === undefined || Number.isNaN(value)) return 0;
+  return Math.trunc(value);
+}
+
+function formatStoreStockLines(row: BlingStoreStockRow): string[] {
+  const lines = ['', `🏪 ${row.loja}`, ''];
+
+  if (row.situacao === 'NAO_ENCONTRADO') {
+    lines.push('❌ Produto não encontrado nesta loja.');
+    return lines;
+  }
+
+  if (row.situacao === 'ERRO_CONSULTA') {
+    lines.push('⚠ Não foi possível consultar esta loja.');
+    return lines;
+  }
+
+  lines.push(`Preço: ${formatBrazilianSalePrice(row.preco)}`);
+
+  const qty = row.quantidade;
+  if (qty !== null && qty !== undefined) {
+    lines.push(`Estoque: ${asInteger(qty)}`);
+    if (qty < 0) {
+      lines.push('');
+      lines.push('⚠ Estoque negativo');
+    }
+  } else {
+    lines.push('Estoque: 0');
+  }
+
+  const min = row.minimo;
+  if (min !== null && min !== undefined) {
+    lines.push(`Estoque mínimo: ${asInteger(min)}`);
+  } else {
+    lines.push('Estoque mínimo: 0');
+  }
+
+  const belowMinimum =
+    row.situacao === 'ABAIXO_DO_MINIMO' ||
+    (qty !== null && min !== null && qty >= 0 && qty < min);
+  if (belowMinimum) {
+    lines.push('');
+    lines.push('⚠ Abaixo do estoque mínimo');
+  }
+
+  return lines;
+}
+
+export function formatStockProductBlock(product: BlingStockProductBlock): string {
+  const lines = [
+    `Código: ${product.codigoBarras}`,
+    '',
+    'Produto:',
+    product.produto,
+    '',
+    STOCK_BLOCK_SEPARATOR,
+  ];
+
+  for (const row of product.estoques) {
+    lines.push(...formatStoreStockLines(row), '', STOCK_BLOCK_SEPARATOR);
+  }
+
+  if (lines[lines.length - 1] === STOCK_BLOCK_SEPARATOR) {
+    lines.pop();
+  }
+
+  return lines.join('\n').trim();
+}
+
+export function formatStockDetailedResponse(produtos: BlingStockProductBlock[]): string {
+  return produtos.map((product) => formatStockProductBlock(product)).join('\n\n').trim();
+}
+
+export function collectStockConsultedStores(produtos: BlingStockProductBlock[]): string[] {
+  const labels = new Set<string>();
+  for (const product of produtos) {
+    for (const row of product.estoques) {
+      labels.add(row.loja);
+    }
+  }
+  return [...labels].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+
+export function formatStockBulkResponse(input: {
+  stats: BlingStockBulkStats;
+  lojas: string[];
+  downloadUrl?: string | null;
+  excelGenerationFailed?: boolean;
+}): string {
+  const lines = [
+    'Consulta concluída ✅',
+    '',
+    `Produtos consultados: ${input.stats.produtosConsultados}`,
+    '',
+    `Produtos encontrados: ${input.stats.produtosEncontrados}`,
+    '',
+    `Produtos não encontrados: ${input.stats.produtosNaoEncontrados}`,
+    '',
+    'Lojas consultadas:',
+    '',
+    ...input.lojas.map((loja) => `• ${loja}`),
+    '',
+  ];
+
+  if (input.downloadUrl) {
+    lines.push(
+      '📄 A planilha completa foi gerada.',
+      '',
+      '⬇️ Download:',
+      input.downloadUrl,
+    );
+  } else if (input.excelGenerationFailed) {
+    lines.push('Não foi possível gerar a planilha desta vez.');
+  } else {
+    lines.push('📄 A planilha completa foi gerada.');
+  }
+
+  return lines.join('\n').trim();
+}

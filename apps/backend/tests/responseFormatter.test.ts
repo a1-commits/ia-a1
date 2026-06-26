@@ -8,6 +8,45 @@ import {
   llamaPreservesBlingFacts,
 } from '../src/domains/chat/responseFormatter.service';
 
+const sampleProduct = {
+  codigoBarras: '7891234567890',
+  produto: 'Refrigerante 2L',
+  estoques: [
+    {
+      loja: 'PB1',
+      quantidade: 12,
+      minimo: 5,
+      situacao: 'OK',
+      preco: 8.99,
+      codigoInterno: 'SKU-1',
+    },
+    {
+      loja: 'PB2',
+      quantidade: null,
+      minimo: null,
+      situacao: 'NAO_ENCONTRADO',
+      preco: null,
+      codigoInterno: null,
+    },
+    {
+      loja: 'PB3',
+      quantidade: 3,
+      minimo: 2,
+      situacao: 'OK',
+      preco: 7.5,
+      codigoInterno: 'SKU-1',
+    },
+    {
+      loja: 'PB4',
+      quantidade: null,
+      minimo: null,
+      situacao: 'NAO_ENCONTRADO',
+      preco: null,
+      codigoInterno: null,
+    },
+  ],
+};
+
 describe('responseFormatter — dados ERP', () => {
   it('resultado vazio usa mensagem fixa sem inventar', async () => {
     const text = await formatBlingStructuredResponse(
@@ -38,26 +77,15 @@ describe('responseFormatter — dados ERP', () => {
       {
         kind: 'stock',
         intent: 'CONSULTA_CODIGO_BARRAS',
-        produto: 'Refrigerante 2L',
-        codigoBarras: '7891234567890',
-        estoques: [
-          {
-            loja: 'Loja Centro',
-            quantidade: 12,
-            minimo: 5,
-            situacao: 'OK',
-            preco: 8.99,
-            codigoInterno: 'SKU-1',
-          },
-        ],
+        produtos: [sampleProduct],
       },
       '7891234567890',
     );
+    assert.match(text, /Código: 7891234567890/);
     assert.match(text, /Refrigerante 2L/);
-    assert.match(text, /7891234567890/);
-    assert.match(text, /Loja Centro/);
+    assert.match(text, /🏪 PB1/);
     assert.match(text, /Estoque: 12/);
-    assert.match(text, /Preço: R\$ 8\.99/);
+    assert.match(text, /Preço: R\$ 8,99/);
   });
 
   it('consolida todas as lojas em uma única resposta', async () => {
@@ -65,52 +93,16 @@ describe('responseFormatter — dados ERP', () => {
       {
         kind: 'stock',
         intent: 'CONSULTA_CODIGO_BARRAS',
-        produto: 'Refrigerante 2L',
-        codigoBarras: '7891234567890',
-        estoques: [
-          {
-            loja: 'PB1',
-            quantidade: 12,
-            minimo: 5,
-            situacao: 'OK',
-            preco: 8.99,
-            codigoInterno: 'SKU-1',
-          },
-          {
-            loja: 'PB2',
-            quantidade: null,
-            minimo: null,
-            situacao: 'NAO_ENCONTRADO',
-            preco: null,
-            codigoInterno: null,
-          },
-          {
-            loja: 'PB3',
-            quantidade: 3,
-            minimo: 2,
-            situacao: 'OK',
-            preco: 7.5,
-            codigoInterno: 'SKU-1',
-          },
-          {
-            loja: 'PB4',
-            quantidade: null,
-            minimo: null,
-            situacao: 'NAO_ENCONTRADO',
-            preco: null,
-            codigoInterno: null,
-          },
-        ],
+        produtos: [sampleProduct],
       },
       '7891234567890',
     );
-    assert.match(text, /Produto: Refrigerante 2L/);
-    assert.match(text, /PB1/);
-    assert.match(text, /PB2[\s\S]*Produto não encontrado nesta loja/);
-    assert.match(text, /PB3/);
-    assert.match(text, /PB4[\s\S]*Produto não encontrado nesta loja/);
-    const pbMatches = text.match(/^PB\d$/gm);
-    assert.equal(pbMatches?.length, 4);
+    assert.match(text, /🏪 PB1/);
+    assert.match(text, /🏪 PB2[\s\S]*❌ Produto não encontrado nesta loja/);
+    assert.match(text, /🏪 PB3/);
+    assert.match(text, /🏪 PB4[\s\S]*Produto não encontrado nesta loja/);
+    const storeMatches = text.match(/^🏪 PB\d$/gm);
+    assert.equal(storeMatches?.length, 4);
   });
 
   it('validação rejeita resposta do Llama com dados alterados', () => {

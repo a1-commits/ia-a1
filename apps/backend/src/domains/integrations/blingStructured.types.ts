@@ -9,6 +9,18 @@ export type BlingStoreStockRow = {
   codigoInterno: string | null;
 };
 
+export type BlingStockProductBlock = {
+  codigoBarras: string;
+  produto: string;
+  estoques: BlingStoreStockRow[];
+};
+
+export type BlingStockBulkStats = {
+  produtosConsultados: number;
+  produtosEncontrados: number;
+  produtosNaoEncontrados: number;
+};
+
 export type BlingProductOptionRow = {
   nome: string;
   sku: string | null;
@@ -21,10 +33,9 @@ export type BlingStructuredResult =
   | {
       kind: 'stock';
       intent: AgentIntent;
-      produto: string;
-      codigoBarras: string | null;
-      estoques: BlingStoreStockRow[];
+      produtos: BlingStockProductBlock[];
       downloadUrl?: string | null;
+      excelGenerationFailed?: boolean;
     }
   | {
       kind: 'multiple_products';

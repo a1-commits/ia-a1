@@ -169,7 +169,7 @@ describe('buildPeraStockExcelRows', () => {
 });
 
 describe('buildPeraStockExcelBuffer', () => {
-  it('gera workbook xlsx com colunas esperadas', async () => {
+  it('gera workbook xlsx com colunas por loja', async () => {
     const data = mockData(['7891234567890'], () => ({
       barcode: '7891234567890',
       totalCurrentStock: 10,
@@ -182,6 +182,10 @@ describe('buildPeraStockExcelBuffer', () => {
           currentStock: 10,
           minimumStock: 3,
         }),
+        store('PB2', {
+          found: false,
+          situation: 'NAO_ENCONTRADO',
+        }),
       ],
     }));
 
@@ -193,17 +197,16 @@ describe('buildPeraStockExcelBuffer', () => {
     assert.ok(sheet);
     assert.deepEqual(
       (sheet.getRow(1).values as string[]).slice(1),
-      ['Código GTIN/EAN', 'Loja', 'Produto', 'Preço', 'Estoque', 'Estoque mínimo', 'Situação'],
+      ['Código', 'Produto', 'PB1', 'Mín PB1', 'PB2', 'Mín PB2'],
     );
 
     const row = sheet.getRow(2);
     assert.equal(row.getCell(1).value, '7891234567890');
-    assert.equal(row.getCell(2).value, 'PB1');
-    assert.equal(row.getCell(3).value, 'Item');
-    assert.equal(row.getCell(4).value, 'R$ 5,99');
-    assert.equal(row.getCell(5).value, 10);
-    assert.equal(row.getCell(6).value, 3);
-    assert.equal(row.getCell(7).value, 'Encontrado');
+    assert.equal(row.getCell(2).value, 'Item');
+    assert.equal(row.getCell(3).value, 10);
+    assert.equal(row.getCell(4).value, 3);
+    assert.equal(row.getCell(5).value, 'N/A');
+    assert.equal(row.getCell(6).value, '');
   });
 });
 

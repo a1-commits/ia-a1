@@ -5,6 +5,13 @@ import type {
   BlingStructuredResult,
 } from '../integrations/blingStructured.types';
 import { repairBrokenAccents, sanitizeAgentClientReply } from '../../lib/textEncoding';
+import {
+  collectStockConsultedStores,
+  formatStockBulkResponse,
+  formatStockDetailedResponse,
+  STOCK_BLOCK_SEPARATOR,
+} from './stockResponseFormat';
+import { buildStockBulkStats, resolveStockDisplayMode } from './stockDisplayMode';
 
 const BEAUTIFY_SYSTEM_PROMPT = [
   'Você embeleza mensagens de atendimento.',
@@ -44,46 +51,50 @@ function formatMultipleProductsDeterministic(
   ].join('\n');
 }
 
-function formatStoreStockBlock(row: {
-  loja: string;
-  quantidade: number | null;
-  minimo: number | null;
-  situacao: string;
-  preco: number | null;
-}): string[] {
-  if (row.situacao === 'NAO_ENCONTRADO') {
-    return [row.loja, 'Produto não encontrado nesta loja.'];
+function formatStockDeterministic(data: Extract<BlingStructuredResult, { kind: 'stock' }>): string {
+  const displayMode = resolveStockDisplayMode(data.produtos.length);
+  if (displayMode === 'bulk') {
+    return formatStockBulkResponse({
+      stats: buildStockBulkStats(data.produtos),
+      lojas: collectStockConsultedStores(data.produtos),
+      downloadUrl: data.downloadUrl,
+      excelGenerationFailed: data.excelGenerationFailed,
+    });
   }
-  if (row.situacao === 'ERRO_CONSULTA') {
-    return [row.loja, 'Não consegui consultar esta loja.'];
-  }
-  const price =
-    row.preco !== null && row.preco !== undefined
-      ? `R$ ${row.preco.toFixed(2)}`
-      : 'Não informado';
-  return [
-    row.loja,
-    `Estoque: ${row.quantidade ?? 0}`,
-    `Mínimo: ${row.minimo ?? 0}`,
-    `Preço: ${price}`,
-  ];
+  return formatStockDetailedResponse(data.produtos);
 }
 
-function formatStockDeterministic(data: Extract<BlingStructuredResult, { kind: 'stock' }>): string {
-  const lines = [
-    `Produto: ${data.produto}`,
-    data.codigoBarras ? `Código de barras: ${data.codigoBarras}` : null,
-    '',
-  ].filter((line): line is string => line !== null);
-
-  for (const row of data.estoques) {
-    lines.push(...formatStoreStockBlock(row), '');
+function collectStockFactTokens(
+  data: Extract<BlingStructuredResult, { kind: 'stock' }>,
+): string[] {
+  const tokens: string[] = [STOCK_BLOCK_SEPARATOR];
+  if (data.downloadUrl) tokens.push(data.downloadUrl);
+  const displayMode = resolveStockDisplayMode(data.produtos.length);
+  if (displayMode === 'bulk') {
+    const stats = buildStockBulkStats(data.produtos);
+    tokens.push(String(stats.produtosConsultados));
+    tokens.push(String(stats.produtosEncontrados));
+    tokens.push(String(stats.produtosNaoEncontrados));
+    for (const loja of collectStockConsultedStores(data.produtos)) {
+      tokens.push(loja);
+    }
   }
-
-  if (data.downloadUrl) {
-    lines.push(`Planilha completa: ${data.downloadUrl}`);
+  for (const product of data.produtos) {
+    tokens.push(product.codigoBarras);
+    tokens.push(product.produto);
+    for (const row of product.estoques) {
+      tokens.push(row.loja);
+      if (row.codigoInterno) tokens.push(row.codigoInterno);
+      if (row.quantidade !== null) tokens.push(String(row.quantidade));
+      if (row.minimo !== null) tokens.push(String(row.minimo));
+      if (row.preco !== null) {
+        tokens.push(row.preco.toFixed(2));
+        tokens.push(String(row.preco));
+      }
+      tokens.push(row.situacao);
+    }
   }
-  return lines.join('\n').trim();
+  return tokens.filter((t) => t.trim().length > 0);
 }
 
 function formatBelowMinimumDeterministic(
@@ -103,26 +114,6 @@ function formatBelowMinimumDeterministic(
     }),
   ];
   return lines.join('\n');
-}
-
-function collectStockFactTokens(
-  data: Extract<BlingStructuredResult, { kind: 'stock' }>,
-): string[] {
-  const tokens = [data.produto];
-  if (data.codigoBarras) tokens.push(data.codigoBarras);
-  if (data.downloadUrl) tokens.push(data.downloadUrl);
-  for (const row of data.estoques) {
-    tokens.push(row.loja);
-    if (row.codigoInterno) tokens.push(row.codigoInterno);
-    if (row.quantidade !== null) tokens.push(String(row.quantidade));
-    if (row.minimo !== null) tokens.push(String(row.minimo));
-    if (row.preco !== null) {
-      tokens.push(row.preco.toFixed(2));
-      tokens.push(String(row.preco));
-    }
-    tokens.push(row.situacao);
-  }
-  return tokens.filter((t) => t.trim().length > 0);
 }
 
 function collectBelowMinimumFactTokens(
@@ -238,8 +229,7 @@ export async function formatBlingStructuredResponse(
   }
 
   if (data.kind === 'stock') {
-    const deterministic = formatStockDeterministic(data);
-    return tryBeautifyDeterministicReply(deterministic, collectStockFactTokens(data));
+    return formatStockDeterministic(data);
   }
 
   return EMPTY_PRODUCT_MESSAGE;
