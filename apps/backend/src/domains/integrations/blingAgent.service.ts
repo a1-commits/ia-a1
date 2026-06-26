@@ -1,101 +1,19 @@
 import type { Agent } from '@prisma/client';
-import {
-  aggregateStockForAgent,
-  agentHasBlingTool,
-  findProductOptionsByNameForAgent,
-} from './bling.service';
-import {
-  formatProductDisambiguationResponse,
-  isNumericGtinInput,
-  logGtinSearchDiagnostic,
-  parseBlingStockRequest,
-  shouldAutoSelectNameMatch,
-} from './blingProductSearch';
-import {
-  BLING_TOOL_NAME,
-  formatStockResponse,
-} from './bling.types';
-import { createPeraStockExcelExport } from '../exports/peraStockExport.service';
-import { shouldUsePeraStockSummary } from './blingStockExcel';
-import { formatPeraStockSummaryResponse } from './blingStockUx';
+import { BLING_TOOL_NAME } from './bling.types';
 
-const STOCK_KEYWORDS =
-  /estoque|c[oó]digo de barras|barras|gtin|ean|saldo|m[ií]nimo|produto|bling|consulta|sku|c[oó]digo interno/i;
+/** @deprecated Use intentRouter + blingQueryEngine. Mantido apenas para compatibilidade de import. */
+export { BLING_TOOL_NAME };
 
-export function shouldUseBlingStockTool(agent: Agent, content: string): boolean {
-  const request = parseBlingStockRequest(content);
-  if (!request) return false;
-  if (agent.name.toLowerCase().includes('pera')) return true;
-  return STOCK_KEYWORDS.test(content);
+/** @deprecated Substituído por classifyIntent() em intentRouter.service.ts */
+export function shouldUseBlingStockTool(_agent: Agent, _content: string): boolean {
+  return false;
 }
 
-export async function tryHandleBlingStockQuery(input: {
+/** @deprecated Substituído por runAgentEngine() + executeBlingQuery() */
+export async function tryHandleBlingStockQuery(_input: {
   userId: string;
   agent: Agent;
   content: string;
 }): Promise<string | null> {
-  const hasTool = await agentHasBlingTool(input.agent.id);
-  if (!hasTool && !input.agent.name.toLowerCase().includes('pera')) return null;
-  if (!shouldUseBlingStockTool(input.agent, input.content)) return null;
-
-  const request = parseBlingStockRequest(input.content);
-  if (!request) return null;
-
-  if (request.kind === 'name') {
-    logGtinSearchDiagnostic({
-      query: request.query,
-      mode: 'NAME',
-      endpoint: 'findProductOptionsByNameForAgent',
-      phase: 'primary',
-      candidateCount: 0,
-      firstCandidate: null,
-      matched: false,
-      matchSource: 'request-start',
-    });
-    const options = await findProductOptionsByNameForAgent({
-      userId: input.userId,
-      agentId: input.agent.id,
-      nameQuery: request.query,
-    });
-    if (shouldAutoSelectNameMatch(options)) return null;
-    return formatProductDisambiguationResponse(options);
-  }
-
-  const queryMode =
-    request.kind === 'barcode' || request.queries.every(isNumericGtinInput) ? 'gtin' : 'sku';
-
-  const data = await aggregateStockForAgent({
-    userId: input.userId,
-    agentId: input.agent.id,
-    barcodes: request.queries,
-    queryMode,
-  });
-
-  if (!shouldUsePeraStockSummary(data.barcodes.length)) {
-    return formatStockResponse(data);
-  }
-
-  let downloadUrl: string | null = null;
-  let excelGenerationFailed = false;
-  try {
-    downloadUrl = await createPeraStockExcelExport({
-      userId: input.userId,
-      data,
-    });
-  } catch (error) {
-    excelGenerationFailed = true;
-    console.error(
-      '[bling:excel]',
-      JSON.stringify({
-        userId: input.userId,
-        agentId: input.agent.id,
-        codeCount: data.barcodes.length,
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
-  }
-
-  return formatPeraStockSummaryResponse(data, { downloadUrl, excelGenerationFailed });
+  return null;
 }
-
-export { BLING_TOOL_NAME };

@@ -1,17 +1,11 @@
 import { ContextType, MessageRole, type Agent } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { generateAssistantReply, syncAiRuntimePreference, AiUnavailableError } from '../ai/aiService';
-import type { ChatMessage } from '../ai/aiProvider.types';
-import { buildDynamicAgentPrompt } from '../agents/agentPrompt.service';
+import { syncAiRuntimePreference } from '../ai/aiService';
 import { resolveAgentForMessage } from '../agents/agentResolver.service';
 import { touchContactInteraction } from '../contacts/contact.service';
-import { tryHandleBlingStockQuery } from '../integrations/blingAgent.service';
 import { ROUTER_HISTORY_MESSAGES, type AgentPromptChannel } from './prompt.service';
-import {
-  classifyFromConversation,
-  detectRouterPhase,
-  type RouterCategory,
-} from './router.service';
+import { runAgentEngine } from './agentEngine.service';
+import type { RouterCategory } from './router.service';
 import type { AgentMeta, AgentInterpretation } from './agent.types';
 import {
   clampMinimalReply,
@@ -159,41 +153,7 @@ async function resolveTurnAgent(
   });
 }
 
-const AI_REPLY_RETRY_MS = [1500, 2500, 4000] as const;
-const AI_REPLY_MAX_ATTEMPTS = 3;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function generateReplyWithRetry(promptMessages: ChatMessage[]): Promise<string> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= AI_REPLY_MAX_ATTEMPTS; attempt++) {
-    try {
-      const raw = await generateAssistantReply(promptMessages);
-      const replyText = clampMinimalReply(
-        sanitizeAgentClientReply(repairBrokenAccents(raw)),
-      );
-      if (!replyText.trim()) {
-        console.warn('[chat:ai] empty response', { attempt });
-        throw new AiUnavailableError('Resposta vazia do modelo de IA');
-      }
-      return replyText;
-    } catch (error) {
-      lastError = error;
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn('[chat:ai] reply attempt failed', { attempt, message });
-      if (attempt < AI_REPLY_MAX_ATTEMPTS) {
-        await sleep(AI_REPLY_RETRY_MS[attempt - 1] ?? 4000);
-      }
-    }
-  }
-  if (lastError instanceof AiUnavailableError) throw lastError;
-  if (lastError instanceof Error) throw lastError;
-  throw new AiUnavailableError('IA indisponível no momento');
-}
-
-async function finalizeRouterAgentReply(input: {
+async function finalizeEngineReply(input: {
   channel: AgentPromptChannel;
   turn: TurnContext;
   userMsg: ProcessAgentMessageOutput['userMessage'];
@@ -202,54 +162,25 @@ async function finalizeRouterAgentReply(input: {
 }): Promise<ProcessAgentMessageOutput> {
   const { channel, turn, userMsg, contactDisplayName, agent } = input;
 
-  const history = await prisma.message.findMany({
-    where: { conversationId: turn.conversationId },
-    orderBy: { createdAt: 'asc' },
-    take: ROUTER_HISTORY_MESSAGES,
+  const engine = await runAgentEngine({
+    agent,
+    userId: turn.userId,
+    content: turn.userContent,
+    conversationId: turn.conversationId,
+    channel,
+    contactDisplayName,
   });
 
-  const conversationMessages = history.map((m) => {
-    const role =
-      m.role === MessageRole.USER
-        ? ('user' as const)
-        : m.role === MessageRole.ASSISTANT
-          ? ('assistant' as const)
-          : ('system' as const);
-    return { role, content: m.content };
-  });
-
-  const routerCategory = classifyFromConversation(conversationMessages);
-  const routerPhase = detectRouterPhase(conversationMessages, routerCategory);
+  const replyText = clampMinimalReply(
+    sanitizeAgentClientReply(repairBrokenAccents(engine.replyText)),
+  ).slice(0, 12_000);
 
   const interpretation: AgentInterpretation = {
     context: ContextType.GERAL,
     kind: 'message',
     confidence: 1,
-    rationale: `Agente=${agent.name} fase=${routerPhase}${routerCategory ? ` categoria=${routerCategory}` : ''}`,
+    rationale: engine.rationale,
   };
-
-  const promptMessages = buildDynamicAgentPrompt({
-    agent,
-    conversationMessages,
-    channel,
-    contactDisplayName,
-  });
-
-  let replyText: string;
-  try {
-    replyText = await generateReplyWithRetry(promptMessages);
-  } catch (error) {
-    const reason = error instanceof AiUnavailableError ? error.message : 'IA indisponível no momento';
-    console.error('[chat:ai] reply failed after retries', {
-      conversationId: turn.conversationId,
-      reason,
-    });
-    replyText =
-      `⚠️ Não consegui responder automaticamente agora (${reason}). Sua mensagem foi registrada — tentaremos novamente em breve.`.slice(
-        0,
-        12_000,
-      );
-  }
 
   const assistantMsg = await prisma.message.create({
     data: {
@@ -263,7 +194,7 @@ async function finalizeRouterAgentReply(input: {
     turn,
     userMsg,
     assistantMsg,
-    agentMeta: routerAgentMeta({ interpretation, routerCategory }),
+    agentMeta: routerAgentMeta({ interpretation, routerCategory: null }),
     agent,
   });
 }
@@ -538,34 +469,6 @@ export async function processAgentMessage(
     });
   }
 
-  const resolvedAgent = await resolveTurnAgent(userId, input, activeConversation);
-
-  const blingReply = await tryHandleBlingStockQuery({
-    userId,
-    agent: resolvedAgent,
-    content: input.content,
-  });
-  if (blingReply) {
-    const assistantMsg = await prisma.message.create({
-      data: { conversationId, role: MessageRole.ASSISTANT, content: blingReply },
-    });
-    return completeTurn({
-      turn,
-      userMsg,
-      assistantMsg,
-      agentMeta: routerAgentMeta({
-        interpretation: {
-          context: ContextType.GERAL,
-          kind: 'message',
-          confidence: 1,
-          rationale: 'consultar_estoque_bling_multi_lojas',
-        },
-        routerCategory: null,
-      }),
-      agent: resolvedAgent,
-    });
-  }
-
   if (input.customerPhone || input.customerWhatsappId) {
     const contact = await touchContactInteraction({
       userId,
@@ -657,7 +560,7 @@ export async function processAgentMessage(
     };
   }
 
-  return finalizeRouterAgentReply({
+  return finalizeEngineReply({
     channel,
     turn,
     userMsg,
