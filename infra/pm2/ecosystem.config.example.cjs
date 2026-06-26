@@ -15,8 +15,8 @@ module.exports = {
     {
       name: 'mobi-frontend',
       cwd: './apps/frontend',
-      script: 'node_modules/next/dist/bin/next',
-      args: 'start -p 3000',
+      script: 'npm',
+      args: 'run start',
       instances: 1,
       autorestart: true,
       max_memory_restart: '768M',

@@ -109,6 +109,20 @@ npm run docker:up
 
 Ajuste variáveis em `infra/docker/.env` se necessário. O backend executa `prisma migrate deploy` e o seed na subida do container.
 
+## Deploy em produção (PM2 / servidor)
+
+O diretório `.next` **não vai para o Git**. Após cada `git pull`, gere o build antes de reiniciar o frontend:
+
+```bash
+npm run install:deploy
+# ou: npm install && npm run build:frontend
+pm2 restart mobi-frontend
+```
+
+Use `infra/pm2/ecosystem.config.example.cjs` como base. O frontend deve iniciar com `npm run start` em `apps/frontend` (monorepo com dependências na raiz).
+
+Se usar Nginx, encaminhe **todas** as rotas — inclusive `/_next/static` — para a porta do Next (3000). Ver `infra/nginx/frontend.conf.example`.
+
 ## Endpoints úteis (API)
 
 | Método | Caminho | Descrição |

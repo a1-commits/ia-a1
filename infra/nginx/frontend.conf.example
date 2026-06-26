@@ -1,0 +1,21 @@
+# Proxy reverso para o Next.js em produção.
+# Copie para /etc/nginx/sites-available/ e ajuste server_name.
+#
+# Importante: encaminhe TODAS as rotas (incluindo /_next/static) para o Next.
+# Não sirva /_next/static a partir de disco — os hashes mudam a cada build.
+
+server {
+    listen 80;
+    server_name exemplo.seudominio.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
