@@ -35,9 +35,12 @@ export function sanitizeAgentClientReply(text: string): string {
   return out;
 }
 
-/** Limita resposta ao formato recepcionista (2 frases, 25 palavras). */
-export function clampMinimalReply(text: string): string {
-  let out = text.replace(/\s+/g, ' ').trim();
+function normalizeHorizontalSpaces(line: string): string {
+  return line.replace(/[^\S\n]+/g, ' ').trim();
+}
+
+function clampSingleLineMinimalReply(text: string): string {
+  let out = normalizeHorizontalSpaces(text);
   const parts = out.match(/[^.!?]+[.!?]?/g) ?? [out];
   out = parts
     .slice(0, 2)
@@ -48,6 +51,22 @@ export function clampMinimalReply(text: string): string {
     out = `${words.slice(0, 25).join(' ')}…`;
   }
   return out;
+}
+
+function clampMultilineReply(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[^\S\n]+/g, ' ').trimEnd())
+    .join('\n')
+    .trim();
+}
+
+/** Limita resposta ao formato recepcionista (2 frases, 25 palavras). */
+export function clampMinimalReply(text: string): string {
+  if (/[\r\n]/.test(text)) {
+    return clampMultilineReply(text);
+  }
+  return clampSingleLineMinimalReply(text);
 }
 
 /** Tenta corrigir texto com acentuação quebrada (mojibake). */

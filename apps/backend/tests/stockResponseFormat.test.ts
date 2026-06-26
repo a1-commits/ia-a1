@@ -57,7 +57,8 @@ describe('formatStockProductBlock — padrão WhatsApp', () => {
 
     assert.match(text, /^Código: 78908901/);
     assert.match(text, /Produto:\nREFRIGERANTE COCA COLA PET 200ML - ORIGINAL/);
-    assert.match(text, new RegExp(`${STOCK_BLOCK_SEPARATOR}[\\s\\S]*🏪 PB1`));
+    assert.match(text, new RegExp(`${STOCK_BLOCK_SEPARATOR}\\n🏪 PB1`));
+    assert.match(text, new RegExp(`${STOCK_BLOCK_SEPARATOR}\\n🏪 PB2`));
     assert.match(text, /Preço: R\$ 2,50/);
     assert.match(text, /Estoque: 13/);
     assert.match(text, /Estoque mínimo: 0/);

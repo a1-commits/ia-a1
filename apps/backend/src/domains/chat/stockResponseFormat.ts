@@ -12,8 +12,12 @@ function asInteger(value: number | null | undefined): number {
   return Math.trunc(value);
 }
 
-function formatStoreStockLines(row: BlingStoreStockRow): string[] {
-  const lines = ['', `🏪 ${row.loja}`, ''];
+function buildStoreStockBlockLines(row: BlingStoreStockRow): string[] {
+  const lines: string[] = [
+    STOCK_BLOCK_SEPARATOR,
+    `🏪 ${row.loja}`,
+    '',
+  ];
 
   if (row.situacao === 'NAO_ENCONTRADO') {
     lines.push('❌ Produto não encontrado nesta loja.');
@@ -56,29 +60,38 @@ function formatStoreStockLines(row: BlingStoreStockRow): string[] {
   return lines;
 }
 
-export function formatStockProductBlock(product: BlingStockProductBlock): string {
-  const lines = [
+function buildStockProductBlockLines(product: BlingStockProductBlock): string[] {
+  const lines: string[] = [
     `Código: ${product.codigoBarras}`,
     '',
     'Produto:',
     product.produto,
     '',
-    STOCK_BLOCK_SEPARATOR,
   ];
 
   for (const row of product.estoques) {
-    lines.push(...formatStoreStockLines(row), '', STOCK_BLOCK_SEPARATOR);
+    lines.push(...buildStoreStockBlockLines(row));
   }
 
-  if (lines[lines.length - 1] === STOCK_BLOCK_SEPARATOR) {
-    lines.pop();
-  }
+  return lines;
+}
 
-  return lines.join('\n').trim();
+export function formatStockProductBlock(product: BlingStockProductBlock): string {
+  return buildStockProductBlockLines(product).join('\n');
 }
 
 export function formatStockDetailedResponse(produtos: BlingStockProductBlock[]): string {
-  return produtos.map((product) => formatStockProductBlock(product)).join('\n\n').trim();
+  const lines: string[] = [];
+
+  for (let index = 0; index < produtos.length; index++) {
+    if (index > 0) {
+      lines.push('');
+      lines.push('');
+    }
+    lines.push(...buildStockProductBlockLines(produtos[index]!));
+  }
+
+  return lines.join('\n');
 }
 
 export function collectStockConsultedStores(produtos: BlingStockProductBlock[]): string[] {
@@ -125,5 +138,5 @@ export function formatStockBulkResponse(input: {
     lines.push('📄 A planilha completa foi gerada.');
   }
 
-  return lines.join('\n').trim();
+  return lines.join('\n');
 }
