@@ -140,3 +140,15 @@ export function formatStockBulkResponse(input: {
 
   return lines.join('\n');
 }
+
+export const STOCK_BULK_WHATSAPP_ATTACHMENT_FOOTER =
+  '📄 A planilha foi enviada junto desta conversa.';
+
+export function transformBulkReplyForWhatsappAttachment(text: string): string {
+  const replaced = text.replace(
+    /\n*📄 A planilha completa foi gerada\.\s*\n+\s*⬇️ Download:\s*\n+\S+/,
+    `\n\n${STOCK_BULK_WHATSAPP_ATTACHMENT_FOOTER}`,
+  );
+
+  return replaced.replace(/\/api\/exports\/[^\s]+/g, '').trimEnd();
+}

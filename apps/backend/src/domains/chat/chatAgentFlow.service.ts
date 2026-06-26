@@ -37,6 +37,7 @@ import {
   syncConversationAfterTurn,
   type ConversationWithRelations,
 } from './conversationIdentity.service';
+import { prepareWhatsappStockExportReply } from './whatsappStockExportDelivery.service';
 
 export type ProcessAgentMessageInput = {
   userId: string;
@@ -63,6 +64,10 @@ export type ProcessAgentMessageOutput = {
     role: MessageRole;
     content: string;
     createdAt: Date;
+  };
+  whatsappAttachment?: {
+    filePath: string;
+    fileName: string;
   };
   agentMeta: AgentMeta;
   agentName: string;
@@ -100,6 +105,7 @@ async function completeTurn(input: {
   assistantMsg: NonNullable<ProcessAgentMessageOutput['assistantMessage']>;
   agentMeta: AgentMeta;
   agent: Pick<Agent, 'id' | 'name'>;
+  whatsappAttachment?: ProcessAgentMessageOutput['whatsappAttachment'];
 }): Promise<ProcessAgentMessageOutput> {
   const conversationIdentity = await syncConversationAfterTurn({
     conversationId: input.turn.conversationId,
@@ -131,6 +137,7 @@ async function completeTurn(input: {
     conversationId: input.turn.conversationId,
     userMessage: input.userMsg,
     assistantMessage: input.assistantMsg,
+    whatsappAttachment: input.whatsappAttachment,
     agentMeta: input.agentMeta,
     agentName: input.agent.name,
     conversationIdentity,
@@ -171,9 +178,19 @@ async function finalizeEngineReply(input: {
     contactDisplayName,
   });
 
-  const replyText = clampMinimalReply(
+  let replyText = clampMinimalReply(
     sanitizeAgentClientReply(repairBrokenAccents(engine.replyText)),
   ).slice(0, 12_000);
+
+  let whatsappAttachment: ProcessAgentMessageOutput['whatsappAttachment'];
+  if (channel === 'whatsapp_customer' || channel === 'whatsapp_admin') {
+    const prepared = await prepareWhatsappStockExportReply({
+      replyText,
+      userId: turn.userId,
+    });
+    replyText = prepared.replyText;
+    whatsappAttachment = prepared.attachment;
+  }
 
   const interpretation: AgentInterpretation = {
     context: ContextType.GERAL,
@@ -196,6 +213,7 @@ async function finalizeEngineReply(input: {
     assistantMsg,
     agentMeta: routerAgentMeta({ interpretation, routerCategory: null }),
     agent,
+    whatsappAttachment,
   });
 }
 

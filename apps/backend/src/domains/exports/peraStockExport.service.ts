@@ -50,6 +50,14 @@ export async function createPeraStockExcelExport(input: {
   return `/api/exports/${fileId}?token=${encodeURIComponent(token)}`;
 }
 
+const EXPORT_DOWNLOAD_URL_RE =
+  /\/api\/exports\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+export function parseStockExportDownloadUrl(text: string): string | null {
+  const match = EXPORT_DOWNLOAD_URL_RE.exec(text);
+  return match?.[1] ?? null;
+}
+
 export async function loadExportFile(input: {
   fileId: string;
   userId: string;

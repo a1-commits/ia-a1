@@ -861,8 +861,22 @@ class WhatsAppService {
     };
   }
 
-  private async sendWhatsappReply(message: Message, text: string, jid: string): Promise<void> {
-    logWhatsappFlowHotfix('reply.send.start', { to: jid });
+  private async sendWhatsappReply(
+    message: Message,
+    text: string,
+    jid: string,
+    attachment?: { filePath: string; fileName: string },
+  ): Promise<void> {
+    logWhatsappFlowHotfix('reply.send.start', { to: jid, hasAttachment: Boolean(attachment) });
+    if (attachment) {
+      const media = MessageMedia.fromFilePath(attachment.filePath);
+      media.filename = attachment.fileName;
+      await message.reply(media, undefined, { sendMediaAsDocument: true });
+      logWhatsappFlowHotfix('reply.attachment.sent', {
+        to: jid,
+        fileName: attachment.fileName,
+      });
+    }
     await message.reply(text.slice(0, 3500));
     this.markReplySent(jid);
     this.lastBotReplyFingerprintByJid.set(jid, `${jid}:${text.trim()}`);
@@ -1194,7 +1208,12 @@ class WhatsAppService {
       });
 
       const responseText = flow.assistantMessage.content.slice(0, 3500);
-      await this.sendWhatsappReply(message, responseText, message.from);
+      await this.sendWhatsappReply(
+        message,
+        responseText,
+        message.from,
+        flow.whatsappAttachment,
+      );
     } catch (error) {
       const errMessage = error instanceof Error ? error.message : String(error);
       const errStack = error instanceof Error ? error.stack : undefined;
