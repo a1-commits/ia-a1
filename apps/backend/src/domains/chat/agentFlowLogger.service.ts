@@ -9,6 +9,12 @@ export type AgentFlowLogEvent = {
   durationMs: number;
 };
 
+export type AgentSearchMode = 'GTIN' | 'SKU_FALLBACK' | 'NAME';
+
+export function logAgentSearchMode(mode: AgentSearchMode): void {
+  console.info(`[agent-engine] search.mode=${mode}`);
+}
+
 export function logAgentFlowStage(
   stage: string,
   payload: Record<string, unknown>,

@@ -15,6 +15,7 @@ import {
   formatProductOptionLine,
   inferQueryModeFromRequest,
   isNumericGtinInput,
+  normalizeGtinInput,
   parseBlingStockRequest,
   productMatchesGtin,
   productMatchesSku,
@@ -81,6 +82,26 @@ describe('GTIN/EAN strict — numérico nunca casa com product.codigo', () => {
 
   it('GTIN inexistente retorna null na lista', () => {
     assert.equal(findExactGtinProduct([portaCartaoProduct], '0000000000000'), null);
+  });
+});
+
+describe('normalizeGtinInput / isNumericGtinInput', () => {
+  it('remove espaços, tabs e quebras antes da decisão GTIN', () => {
+    assert.equal(normalizeGtinInput('7891234567890 '), '7891234567890');
+    assert.equal(normalizeGtinInput(' 7891234567890\t'), '7891234567890');
+    assert.equal(normalizeGtinInput('7891234567890\n'), '7891234567890');
+    assert.equal(isNumericGtinInput('7891234567890 '), true);
+  });
+
+  it('remove separadores acidentais em códigos numéricos', () => {
+    assert.equal(normalizeGtinInput('789-1234567890'), '7891234567890');
+    assert.equal(normalizeGtinInput('789 123 456 7890'), '7891234567890');
+    assert.equal(isNumericGtinInput('789 123 456 7890'), true);
+  });
+
+  it('não classifica SKU alfanumérico como GTIN após normalização', () => {
+    assert.equal(isNumericGtinInput(SKU_SAMPLE), false);
+    assert.equal(normalizeGtinInput(SKU_SAMPLE), '');
   });
 });
 

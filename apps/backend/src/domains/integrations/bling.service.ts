@@ -656,10 +656,9 @@ async function findProductByQuery(
   query: string,
   mode: BlingProductQueryMode,
 ): Promise<BlingProduct | null> {
-  if (isNumericGtinInput(query)) {
-    return findProductByGtinEan(token, query);
+  if (mode === 'sku') {
+    return findProductBySku(token, query);
   }
-  if (mode === 'sku') return findProductBySku(token, query);
   return findProductByGtinEan(token, query);
 }
 
@@ -765,11 +764,11 @@ async function searchStockByProductQueryImpl(
   }
 
   try {
-    const effectiveQueryMode: BlingProductQueryMode = isNumericGtinInput(query) ? 'gtin' : mode;
+    const effectiveQueryMode: BlingProductQueryMode = mode;
 
     logGtinDiagnostic1('searchStockByProductQuery.start', {
       input: query,
-      kind: isNumericGtinInput(query) ? 'barcode' : mode === 'sku' ? 'sku' : 'barcode',
+      kind: mode === 'sku' ? 'sku' : 'barcode',
       queryMode: mode,
       effectiveQueryMode,
       connectionId,
@@ -921,19 +920,19 @@ export async function collectStockResultsForBarcodes(input: {
 
   for (let index = 0; index < uniqueBarcodes.length; index++) {
     const barcode = uniqueBarcodes[index]!;
-    const storeResults: BlingStockStoreResult[] = [];
-
-    for (const connection of input.connections) {
-      const storeResult = await input.searchStock(connection.id, barcode);
-      logStockSearchAssociation({
-        index,
-        searchedBarcode: barcode,
-        returnedBarcode: storeResult.barcode,
-        connectionId: connection.id,
-        found: storeResult.found,
-      });
-      storeResults.push(storeResult);
-    }
+    const storeResults = await Promise.all(
+      input.connections.map(async (connection) => {
+        const storeResult = await input.searchStock(connection.id, barcode);
+        logStockSearchAssociation({
+          index,
+          searchedBarcode: barcode,
+          returnedBarcode: storeResult.barcode,
+          connectionId: connection.id,
+          found: storeResult.found,
+        });
+        return storeResult;
+      }),
+    );
 
     const totalCurrentStock = storeResults.reduce(
       (sum, s) => sum + (s.found && s.currentStock !== null ? s.currentStock : 0),

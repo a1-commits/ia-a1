@@ -1,4 +1,5 @@
 import type { AgentIntent } from '../chat/intentRouter.service';
+import { logAgentSearchMode } from '../chat/agentFlowLogger.service';
 import {
   aggregateStockForAgent,
   agentHasBlingTool,
@@ -10,6 +11,7 @@ import {
   extractBarcodesFromText,
   isNumericGtinInput,
   logGtinSearchDiagnostic,
+  normalizeGtinInput,
   parseBlingStockRequest,
 } from './blingProductSearch';
 import type { BlingMultiStoreStockResponse, BlingStockByBarcodeResult } from './bling.types';
@@ -42,6 +44,48 @@ function worstErrorKind(kinds: BlingApiErrorKind[]): BlingApiErrorKind {
   if (kinds.includes('timeout')) return 'timeout';
   if (kinds.includes('unavailable')) return 'unavailable';
   return 'generic';
+}
+
+export function hasAnyProductFoundInAggregate(data: BlingMultiStoreStockResponse): boolean {
+  return data.results.some((result) => result.stores.some((store) => store.found));
+}
+
+async function aggregateBarcodeSearchWithPriority(input: {
+  userId: string;
+  agentId: string;
+  barcodes: string[];
+}): Promise<BlingMultiStoreStockResponse> {
+  const barcodes = input.barcodes.map((barcode) =>
+    isNumericGtinInput(barcode) ? normalizeGtinInput(barcode) : barcode.trim(),
+  );
+  const numericOnly = barcodes.every(isNumericGtinInput);
+  if (!numericOnly) {
+    return aggregateStockForAgent({
+      userId: input.userId,
+      agentId: input.agentId,
+      barcodes,
+      queryMode: 'sku',
+    });
+  }
+
+  logAgentSearchMode('GTIN');
+  const gtinData = await aggregateStockForAgent({
+    userId: input.userId,
+    agentId: input.agentId,
+    barcodes,
+    queryMode: 'gtin',
+  });
+  if (hasAnyProductFoundInAggregate(gtinData)) {
+    return gtinData;
+  }
+
+  logAgentSearchMode('SKU_FALLBACK');
+  return aggregateStockForAgent({
+    userId: input.userId,
+    agentId: input.agentId,
+    barcodes,
+    queryMode: 'sku',
+  });
 }
 
 function detectApiErrorFromResults(
@@ -119,24 +163,15 @@ function mapStockResponse(
 
   const allRows = flattenStockResults(data.results, filterBelowMinimum);
   if (allRows.length === 0) {
-    const anyFound = primaryResult.stores.some((s) => s.found);
-    if (!anyFound) {
-      return { kind: 'empty', intent, query: primaryBarcode };
-    }
-    if (filterBelowMinimum) {
-      return {
-        kind: 'below_minimum',
-        intent,
-        produto: primaryResult.stores.find((s) => s.found)?.productName ?? null,
-        itens: [],
-      };
+    if (data.stores.length === 0) {
+      return { kind: 'api_error', intent, errorKind: 'unavailable', query: primaryBarcode };
     }
     return { kind: 'empty', intent, query: primaryBarcode };
   }
 
   const productName =
     primaryResult.stores.find((s) => s.found && s.productName)?.productName ??
-    primaryResult.stores[0]?.productName ??
+    primaryResult.stores.find((s) => s.productName)?.productName ??
     'Produto';
 
   if (filterBelowMinimum) {
@@ -183,7 +218,20 @@ function flattenStockResults(
 
   for (const result of results) {
     for (const store of result.stores) {
-      if (!store.found) continue;
+      if (onlyBelowMinimum && store.found && store.situation !== 'ABAIXO_DO_MINIMO') {
+        continue;
+      }
+      if (!store.found) {
+        rows.push({
+          loja: store.storeLabel,
+          quantidade: null,
+          minimo: null,
+          situacao: store.situation === 'ERRO_CONSULTA' ? 'ERRO_CONSULTA' : 'NAO_ENCONTRADO',
+          preco: null,
+          codigoInterno: null,
+        });
+        continue;
+      }
       if (onlyBelowMinimum && store.situation !== 'ABAIXO_DO_MINIMO') continue;
       rows.push({
         loja: store.storeLabel,
@@ -208,18 +256,43 @@ async function queryBySelectedProduct(input: {
   intent: AgentIntent;
   product: BlingProductOptionRow;
 }): Promise<BlingStructuredResult> {
-  const queries = [input.product.gtin, input.product.sku].filter(Boolean) as string[];
-  if (queries.length === 0) {
-    return { kind: 'empty', intent: input.intent, query: input.product.nome };
+  const gtin =
+    input.product.gtin && isNumericGtinInput(input.product.gtin)
+      ? normalizeGtinInput(input.product.gtin)
+      : null;
+  const sku = input.product.sku?.trim() || null;
+
+  if (gtin) {
+    logAgentSearchMode('GTIN');
+    let data = await aggregateStockForAgent({
+      userId: input.userId,
+      agentId: input.agentId,
+      barcodes: [gtin],
+      queryMode: 'gtin',
+    });
+    if (!hasAnyProductFoundInAggregate(data) && sku) {
+      logAgentSearchMode('SKU_FALLBACK');
+      data = await aggregateStockForAgent({
+        userId: input.userId,
+        agentId: input.agentId,
+        barcodes: [sku],
+        queryMode: 'sku',
+      });
+    }
+    return mapStockResponse(input.intent, data);
   }
-  const queryMode = input.product.gtin && isNumericGtinInput(input.product.gtin) ? 'gtin' : 'sku';
-  const data = await aggregateStockForAgent({
-    userId: input.userId,
-    agentId: input.agentId,
-    barcodes: [queries[0]!],
-    queryMode,
-  });
-  return mapStockResponse(input.intent, data);
+
+  if (sku) {
+    const data = await aggregateStockForAgent({
+      userId: input.userId,
+      agentId: input.agentId,
+      barcodes: [sku],
+      queryMode: 'sku',
+    });
+    return mapStockResponse(input.intent, data);
+  }
+
+  return { kind: 'empty', intent: input.intent, query: input.product.nome };
 }
 
 export async function executeBlingQuery(input: {
@@ -257,6 +330,7 @@ export async function executeBlingQuery(input: {
   const filterBelowMinimum = intent === 'LISTA_ABAIXO_MINIMO';
 
   if (request?.kind === 'name') {
+    logAgentSearchMode('NAME');
     logGtinSearchDiagnostic({
       query: request.query,
       mode: 'NAME',
@@ -311,14 +385,10 @@ export async function executeBlingQuery(input: {
     return { kind: 'empty', intent, query: content.trim() || null };
   }
 
-  const queryMode =
-    request?.kind === 'barcode' || barcodes.every(isNumericGtinInput) ? 'gtin' : 'sku';
-
-  const data = await aggregateStockForAgent({
+  const data = await aggregateBarcodeSearchWithPriority({
     userId,
     agentId,
     barcodes,
-    queryMode,
   });
 
   if (intent === 'RELATORIO' && shouldUsePeraStockSummary(data.barcodes.length)) {

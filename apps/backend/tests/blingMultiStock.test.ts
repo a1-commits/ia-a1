@@ -107,6 +107,29 @@ describe('collectStockResultsForBarcodes', () => {
 
     assert.equal(maxInFlight, 1);
   });
+
+  it('consulta lojas em paralelo para o mesmo código', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    await collectStockResultsForBarcodes({
+      barcodes: [CODE_A],
+      connections: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }, { id: 'c4' }],
+      searchStock: async (connectionId, barcode) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        return {
+          ...mockStoreResult(barcode, connectionId === 'c1'),
+          connectionId,
+          storeLabel: connectionId.toUpperCase(),
+        };
+      },
+    });
+
+    assert.equal(maxInFlight, 4);
+  });
 });
 
 describe('assertBarcodeResultsOrder', () => {

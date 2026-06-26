@@ -135,8 +135,8 @@ export function extractBarcodesFromText(text: string): string[] {
   const ordered: string[] = [];
 
   const pushBarcode = (candidate: string): void => {
-    const code = candidate.trim();
-    if (!BARCODE_TOKEN.test(code) || seen.has(code)) return;
+    const code = normalizeGtinInput(candidate);
+    if (!NUMERIC_GTIN_PATTERN.test(code) || seen.has(code)) return;
     seen.add(code);
     ordered.push(code);
   };
@@ -145,7 +145,8 @@ export function extractBarcodesFromText(text: string): string[] {
     const token = part.trim();
     if (!token) continue;
 
-    if (BARCODE_TOKEN.test(token)) {
+    const normalizedToken = normalizeGtinInput(token);
+    if (NUMERIC_GTIN_PATTERN.test(normalizedToken)) {
       pushBarcode(token);
       continue;
     }
@@ -273,8 +274,19 @@ export function findExactSkuProduct<T>(products: T[], searchedSku: string): T | 
   return null;
 }
 
+const INVISIBLE_CHARS = /[\u200B-\u200D\uFEFF\u00AD]/g;
+const WHITESPACE_CHARS = /[\s\u00A0\u2000-\u200A\u202F\u205F\u3000]+/g;
+
+/** Remove espaços, tabs, quebras, caracteres invisíveis e separadores acidentais de códigos numéricos. */
+export function normalizeGtinInput(value: string): string {
+  return value
+    .replace(INVISIBLE_CHARS, '')
+    .replace(WHITESPACE_CHARS, '')
+    .replace(/[^\d]/g, '');
+}
+
 export function isNumericGtinInput(value: string): boolean {
-  return NUMERIC_GTIN_PATTERN.test(value.trim());
+  return NUMERIC_GTIN_PATTERN.test(normalizeGtinInput(value));
 }
 
 /** Parâmetro correto Bling v3: gtins[] (não ?gtin=, que retorna lista genérica). */

@@ -44,25 +44,46 @@ function formatMultipleProductsDeterministic(
   ].join('\n');
 }
 
+function formatStoreStockBlock(row: {
+  loja: string;
+  quantidade: number | null;
+  minimo: number | null;
+  situacao: string;
+  preco: number | null;
+}): string[] {
+  if (row.situacao === 'NAO_ENCONTRADO') {
+    return [row.loja, 'Produto não encontrado nesta loja.'];
+  }
+  if (row.situacao === 'ERRO_CONSULTA') {
+    return [row.loja, 'Não consegui consultar esta loja.'];
+  }
+  const price =
+    row.preco !== null && row.preco !== undefined
+      ? `R$ ${row.preco.toFixed(2)}`
+      : 'Não informado';
+  return [
+    row.loja,
+    `Estoque: ${row.quantidade ?? 0}`,
+    `Mínimo: ${row.minimo ?? 0}`,
+    `Preço: ${price}`,
+  ];
+}
+
 function formatStockDeterministic(data: Extract<BlingStructuredResult, { kind: 'stock' }>): string {
   const lines = [
     `Produto: ${data.produto}`,
     data.codigoBarras ? `Código de barras: ${data.codigoBarras}` : null,
     '',
-    ...data.estoques.map((e) => {
-      const qty = e.quantidade ?? 0;
-      const min = e.minimo ?? 0;
-      const price =
-        e.preco !== null && e.preco !== undefined
-          ? ` — Preço: R$ ${e.preco.toFixed(2)}`
-          : '';
-      return `• ${e.loja}: ${qty} un. (mín. ${min}) — ${e.situacao}${price}`;
-    }),
   ].filter((line): line is string => line !== null);
-  if (data.downloadUrl) {
-    lines.push('', `Planilha completa: ${data.downloadUrl}`);
+
+  for (const row of data.estoques) {
+    lines.push(...formatStoreStockBlock(row), '');
   }
-  return lines.join('\n');
+
+  if (data.downloadUrl) {
+    lines.push(`Planilha completa: ${data.downloadUrl}`);
+  }
+  return lines.join('\n').trim();
 }
 
 function formatBelowMinimumDeterministic(
