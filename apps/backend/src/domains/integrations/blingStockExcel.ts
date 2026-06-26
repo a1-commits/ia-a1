@@ -131,7 +131,7 @@ export async function buildPeraStockExcelBuffer(data: BlingMultiStoreStockRespon
     .map((store) => store.storeLabel)
     .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-  const columns: ExcelJS.Column[] = [
+  sheet.columns = [
     { header: 'Código', key: 'codigo', width: 20 },
     { header: 'Produto', key: 'produto', width: 42 },
     ...storeLabels.flatMap((label) => [
@@ -139,8 +139,6 @@ export async function buildPeraStockExcelBuffer(data: BlingMultiStoreStockRespon
       { header: `Mín ${label}`, key: `min_${label}`, width: 12 },
     ]),
   ];
-
-  sheet.columns = columns;
   sheet.getRow(1).font = { bold: true };
 
   for (const row of buildPeraStockExcelPivotRows(data)) {
