@@ -869,13 +869,24 @@ class WhatsAppService {
   ): Promise<void> {
     logWhatsappFlowHotfix('reply.send.start', { to: jid, hasAttachment: Boolean(attachment) });
     if (attachment) {
-      const media = MessageMedia.fromFilePath(attachment.filePath);
-      media.filename = attachment.fileName;
-      await message.reply(media, undefined, { sendMediaAsDocument: true });
-      logWhatsappFlowHotfix('reply.attachment.sent', {
-        to: jid,
-        fileName: attachment.fileName,
-      });
+      try {
+        const media = MessageMedia.fromFilePath(attachment.filePath);
+        media.filename = attachment.fileName;
+        await message.reply(media, undefined, { sendMediaAsDocument: true });
+        logWhatsappFlowHotfix('reply.attachment.sent', {
+          to: jid,
+          fileName: attachment.fileName,
+        });
+      } catch (attachmentError) {
+        const errMessage =
+          attachmentError instanceof Error ? attachmentError.message : String(attachmentError);
+        logWhatsappFlowHotfix('reply.attachment.failed', {
+          to: jid,
+          fileName: attachment.fileName,
+          message: errMessage,
+        });
+        console.error('[whatsapp] falha ao enviar anexo; enviando apenas texto:', attachmentError);
+      }
     }
     await message.reply(text.slice(0, 3500));
     this.markReplySent(jid);

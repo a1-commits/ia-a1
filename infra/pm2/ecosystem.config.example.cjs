@@ -10,6 +10,7 @@ module.exports = {
       restart_delay: 3000,
       env: {
         NODE_ENV: 'production',
+        WHATSAPP_ENABLED: 'true',
       },
     },
     {
