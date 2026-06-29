@@ -12,7 +12,29 @@ export const RESUMO_DATA_START_ROW = 3;
 export const RESUMO_MODEL_ROW = 4;
 export const RESUMO_LAST_PREFORMULA_ROW = 101;
 
-const RESUMO_COLUMNS = {
+/** Colunas que contêm fórmulas ou campos futuros — nunca recebem valor do código. */
+export const RESUMO_PROTECTED_COLUMNS = new Set([
+  3, 4, 6, 9, 10, 13, 14, 17, 18, 19, 21, 23, 25,
+]);
+
+export const RESUMO_FORMULA_COLUMNS = [4, 6, 9, 13, 17, 21, 23, 25] as const;
+
+export type ResumoInputColumns = {
+  barcode: number;
+  description: number;
+  cdStock: number;
+  pb1Stock: number;
+  pb1Min: number;
+  pb2Stock: number;
+  pb2Min: number;
+  pb3Stock: number;
+  pb3Min: number;
+  pb1Price: number;
+  pb2Price: number;
+  pb3Price: number;
+};
+
+const FALLBACK_INPUT_COLUMNS: ResumoInputColumns = {
   barcode: 1,
   description: 2,
   cdStock: 5,
@@ -22,22 +44,96 @@ const RESUMO_COLUMNS = {
   pb2Min: 12,
   pb3Stock: 15,
   pb3Min: 16,
-} as const;
-
-const RESUMO_VALUE_COLUMNS = new Set<number>(Object.values(RESUMO_COLUMNS));
-
-const STORE_FILL_MAP: Record<string, { stock: number; min?: number }> = {
-  CD: { stock: RESUMO_COLUMNS.cdStock },
-  PB1: { stock: RESUMO_COLUMNS.pb1Stock, min: RESUMO_COLUMNS.pb1Min },
-  PB2: { stock: RESUMO_COLUMNS.pb2Stock, min: RESUMO_COLUMNS.pb2Min },
-  PB3: { stock: RESUMO_COLUMNS.pb3Stock, min: RESUMO_COLUMNS.pb3Min },
+  pb1Price: 20,
+  pb2Price: 22,
+  pb3Price: 24,
 };
 
-const RESUMO_FORMULA_COLUMNS = [4, 6, 9, 13, 17, 21, 23, 25] as const;
+function normalizeHeader(value: ExcelJS.CellValue): string {
+  return String(value ?? '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function findHeaderColumn(headers: Map<number, string>, matcher: (header: string) => boolean): number | undefined {
+  for (const [column, header] of [...headers.entries()].sort((a, b) => a[0] - b[0])) {
+    if (matcher(header)) return column;
+  }
+  return undefined;
+}
+
+export function resolveResumoInputColumns(sheet: ExcelJS.Worksheet): ResumoInputColumns {
+  const headers = new Map<number, string>();
+  sheet.getRow(2).eachCell({ includeEmpty: false }, (cell, column) => {
+    headers.set(column, normalizeHeader(cell.value));
+  });
+
+  const lojaStockColumns: number[] = [];
+  const lojaMinColumns: number[] = [];
+  const lojaPriceColumns: number[] = [];
+
+  for (const [column, header] of [...headers.entries()].sort((a, b) => a[0] - b[0])) {
+    if (header.includes('QUANTO ENVIAR') || header.includes('SEPARAR') || header.includes('SALDO FINAL')) {
+      continue;
+    }
+    if (header === 'PB1' || header === 'PB2' || header === 'PB3') {
+      lojaPriceColumns.push(column);
+      continue;
+    }
+    if (header.includes('ESTOQUE') && header.includes('LOJA')) {
+      lojaStockColumns.push(column);
+      continue;
+    }
+    if (header.includes('ESTOQUE') && header.includes('MINIMO')) {
+      lojaMinColumns.push(column);
+    }
+  }
+
+  const resolved: ResumoInputColumns = {
+    barcode:
+      findHeaderColumn(headers, (header) => header.includes('CODIGO BARRAS') || header.includes('CÓDIGO BARRAS')) ??
+      FALLBACK_INPUT_COLUMNS.barcode,
+    description:
+      findHeaderColumn(headers, (header) => header.includes('DESCRI')) ?? FALLBACK_INPUT_COLUMNS.description,
+    cdStock:
+      findHeaderColumn(headers, (header) => header.includes('ESTOQUE') && header.includes('CD')) ??
+      FALLBACK_INPUT_COLUMNS.cdStock,
+    pb1Stock: lojaStockColumns[0] ?? FALLBACK_INPUT_COLUMNS.pb1Stock,
+    pb1Min: lojaMinColumns[0] ?? FALLBACK_INPUT_COLUMNS.pb1Min,
+    pb2Stock: lojaStockColumns[1] ?? FALLBACK_INPUT_COLUMNS.pb2Stock,
+    pb2Min: lojaMinColumns[1] ?? FALLBACK_INPUT_COLUMNS.pb2Min,
+    pb3Stock: lojaStockColumns[2] ?? FALLBACK_INPUT_COLUMNS.pb3Stock,
+    pb3Min: lojaMinColumns[2] ?? FALLBACK_INPUT_COLUMNS.pb3Min,
+    pb1Price: lojaPriceColumns.find((column) => headers.get(column) === 'PB1') ?? FALLBACK_INPUT_COLUMNS.pb1Price,
+    pb2Price: lojaPriceColumns.find((column) => headers.get(column) === 'PB2') ?? FALLBACK_INPUT_COLUMNS.pb2Price,
+    pb3Price: lojaPriceColumns.find((column) => headers.get(column) === 'PB3') ?? FALLBACK_INPUT_COLUMNS.pb3Price,
+  };
+
+  for (const [name, column] of Object.entries(resolved)) {
+    if (RESUMO_PROTECTED_COLUMNS.has(column)) {
+      throw new Error(
+        `Mapeamento inválido da aba RESUMO: coluna ${column} (${name}) é calculada pelo template.`,
+      );
+    }
+  }
+
+  return resolved;
+}
+
+function inputColumnSet(columns: ResumoInputColumns): Set<number> {
+  return new Set(Object.values(columns));
+}
 
 function asIntegerOrEmpty(value: number | null | undefined): number | '' {
   if (value === null || value === undefined || Number.isNaN(value)) return '';
   return Math.trunc(value);
+}
+
+function asSalePrice(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  return value;
 }
 
 export function isFoundStockResult(result: BlingStockByBarcodeResult): boolean {
@@ -62,9 +158,31 @@ function copyCellStyle(target: ExcelJS.Cell, source: ExcelJS.Cell): void {
   target.style = source.style;
 }
 
+function setResumoInputValue(
+  row: ExcelJS.Row,
+  column: number,
+  value: string | number | null,
+  writableColumns: Set<number>,
+): void {
+  if (RESUMO_PROTECTED_COLUMNS.has(column)) {
+    throw new Error(`Coluna ${column} da aba RESUMO é protegida e não pode receber valores do sistema.`);
+  }
+  if (!writableColumns.has(column)) {
+    throw new Error(`Coluna ${column} não faz parte das colunas de entrada da aba RESUMO.`);
+  }
+
+  const cell = row.getCell(column);
+  if (value === null || value === '') {
+    cell.value = null;
+    return;
+  }
+  cell.value = value;
+}
+
 export function replicateResumoModelRow(
   sheet: ExcelJS.Worksheet,
   targetRow: number,
+  writableColumns: Set<number>,
   modelRow = RESUMO_MODEL_ROW,
 ): void {
   const source = sheet.getRow(modelRow);
@@ -75,7 +193,7 @@ export function replicateResumoModelRow(
     const targetCell = target.getCell(columnNumber);
     copyCellStyle(targetCell, sourceCell);
 
-    if (RESUMO_VALUE_COLUMNS.has(columnNumber)) {
+    if (writableColumns.has(columnNumber)) {
       targetCell.value = null;
       return;
     }
@@ -107,25 +225,54 @@ function getFoundStore(result: BlingStockByBarcodeResult, storeLabel: string): B
   return store;
 }
 
-function clearResumoValueCells(sheet: ExcelJS.Worksheet, rowNumber: number): void {
+function clearResumoInputCells(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  writableColumns: Set<number>,
+): void {
   const row = sheet.getRow(rowNumber);
-  for (const column of RESUMO_VALUE_COLUMNS) {
-    row.getCell(column).value = null;
+  for (const column of writableColumns) {
+    setResumoInputValue(row, column, null, writableColumns);
   }
 }
 
-function fillResumoRow(sheet: ExcelJS.Worksheet, rowNumber: number, result: BlingStockByBarcodeResult): void {
+function fillResumoRow(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  result: BlingStockByBarcodeResult,
+  columns: ResumoInputColumns,
+  writableColumns: Set<number>,
+): void {
   const row = sheet.getRow(rowNumber);
-  row.getCell(RESUMO_COLUMNS.barcode).value = result.barcode;
-  row.getCell(RESUMO_COLUMNS.description).value = resolveProductName(result);
 
-  for (const [storeLabel, columns] of Object.entries(STORE_FILL_MAP)) {
+  setResumoInputValue(row, columns.barcode, result.barcode, writableColumns);
+  setResumoInputValue(row, columns.description, resolveProductName(result), writableColumns);
+
+  const storeFillMap: Record<string, { stock: number; min?: number; price?: number }> = {
+    CD: { stock: columns.cdStock },
+    PB1: { stock: columns.pb1Stock, min: columns.pb1Min, price: columns.pb1Price },
+    PB2: { stock: columns.pb2Stock, min: columns.pb2Min, price: columns.pb2Price },
+    PB3: { stock: columns.pb3Stock, min: columns.pb3Min, price: columns.pb3Price },
+  };
+
+  for (const [storeLabel, mapping] of Object.entries(storeFillMap)) {
     const store = getFoundStore(result, storeLabel);
     if (!store) continue;
 
-    row.getCell(columns.stock).value = asIntegerOrEmpty(store.currentStock);
-    if (columns.min) {
-      row.getCell(columns.min).value = asIntegerOrEmpty(store.minimumStock);
+    const stockValue = asIntegerOrEmpty(store.currentStock);
+    if (stockValue !== '') {
+      setResumoInputValue(row, mapping.stock, stockValue, writableColumns);
+    }
+
+    if (mapping.min !== undefined && store.minimumStock !== null && store.minimumStock !== undefined) {
+      setResumoInputValue(row, mapping.min, asIntegerOrEmpty(store.minimumStock), writableColumns);
+    }
+
+    if (mapping.price !== undefined) {
+      const salePrice = asSalePrice(store.salePrice);
+      if (salePrice !== null) {
+        setResumoInputValue(row, mapping.price, salePrice, writableColumns);
+      }
     }
   }
 }
@@ -138,11 +285,15 @@ function resolveClearUntilRow(foundCount: number, sheet: ExcelJS.Worksheet): num
   return Math.max(RESUMO_LAST_PREFORMULA_ROW, resolveNeededEndRow(foundCount), sheet.lastRow?.number ?? RESUMO_LAST_PREFORMULA_ROW);
 }
 
-function ensureResumoRowsForProducts(sheet: ExcelJS.Worksheet, neededEndRow: number): void {
+function ensureResumoRowsForProducts(
+  sheet: ExcelJS.Worksheet,
+  neededEndRow: number,
+  writableColumns: Set<number>,
+): void {
   if (neededEndRow <= RESUMO_LAST_PREFORMULA_ROW) return;
 
   for (let rowNumber = RESUMO_LAST_PREFORMULA_ROW + 1; rowNumber <= neededEndRow; rowNumber += 1) {
-    replicateResumoModelRow(sheet, rowNumber);
+    replicateResumoModelRow(sheet, rowNumber, writableColumns);
   }
 }
 
@@ -164,19 +315,21 @@ export async function buildEstoqueTemplateExcelBuffer(
     throw new Error('Aba RESUMO não encontrada no template de estoque.');
   }
 
+  const inputColumns = resolveResumoInputColumns(sheet);
+  const writableColumns = inputColumnSet(inputColumns);
   const foundResults = data.results.filter(isFoundStockResult);
   const neededEndRow = resolveNeededEndRow(foundResults.length);
   const clearUntilRow = resolveClearUntilRow(foundResults.length, sheet);
 
-  ensureResumoRowsForProducts(sheet, neededEndRow);
+  ensureResumoRowsForProducts(sheet, neededEndRow, writableColumns);
 
   for (let rowNumber = RESUMO_DATA_START_ROW; rowNumber <= clearUntilRow; rowNumber += 1) {
-    clearResumoValueCells(sheet, rowNumber);
+    clearResumoInputCells(sheet, rowNumber, writableColumns);
   }
 
   foundResults.forEach((result, index) => {
     const rowNumber = RESUMO_DATA_START_ROW + index;
-    fillResumoRow(sheet, rowNumber, result);
+    fillResumoRow(sheet, rowNumber, result, inputColumns, writableColumns);
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

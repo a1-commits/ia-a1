@@ -9,7 +9,9 @@ import {
   adjustFormulaRowReferences,
   listResumoFormulaColumns,
   replicateResumoModelRow,
+  resolveResumoInputColumns,
   RESUMO_MODEL_ROW,
+  RESUMO_PROTECTED_COLUMNS,
 } from '../src/domains/exports/estoqueTemplateExcel.service';
 import {
   buildPeraStockExcelRows,
@@ -200,6 +202,7 @@ describe('buildPeraStockExcelBuffer', () => {
           productName: index === 0 ? 'Item A' : 'Item B',
           currentStock: 10,
           minimumStock: 3,
+          salePrice: 5.99,
         }),
         store('PB2', {
           found: true,
@@ -207,6 +210,7 @@ describe('buildPeraStockExcelBuffer', () => {
           barcode,
           currentStock: 5,
           minimumStock: 1,
+          salePrice: 3.49,
         }),
         store('PB3', {
           found: true,
@@ -214,6 +218,7 @@ describe('buildPeraStockExcelBuffer', () => {
           barcode,
           currentStock: 2,
           minimumStock: 0,
+          salePrice: 2.5,
         }),
       ],
     }));
@@ -237,6 +242,9 @@ describe('buildPeraStockExcelBuffer', () => {
     assert.equal(row1.getCell(12).value, 1);
     assert.equal(row1.getCell(15).value, 2);
     assert.equal(row1.getCell(16).value, 0);
+    assert.equal(row1.getCell(20).value, 5.99);
+    assert.equal(row1.getCell(22).value, 3.49);
+    assert.equal(row1.getCell(24).value, 2.5);
     assert.match(String(row1.getCell(9).formula ?? ''), /G3-H3/);
 
     const row2 = sheet.getRow(4);
@@ -367,8 +375,9 @@ describe('estoque template — revisão técnica', () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(ESTOQUE_TEMPLATE_PATH);
     const sheet = workbook.getWorksheet('RESUMO')!;
+    const writableColumns = new Set(Object.values(resolveResumoInputColumns(sheet)));
 
-    replicateResumoModelRow(sheet, 150);
+    replicateResumoModelRow(sheet, 150, writableColumns);
 
     assert.deepEqual(listResumoFormulaColumns(sheet, RESUMO_MODEL_ROW), [4, 6, 9, 13, 17, 21, 23, 25]);
     assert.deepEqual(listResumoFormulaColumns(sheet, 150), [4, 6, 9, 13, 17, 21, 23, 25]);
@@ -376,6 +385,86 @@ describe('estoque template — revisão técnica', () => {
     assert.equal(sheet.getRow(150).getCell(9).formula, 'G150-H150');
     assert.equal(sheet.getRow(150).getCell(21).formula, 'SUM(T150/S150)-1');
     assert.deepEqual(sheet.getRow(150).getCell(9).style, sheet.getRow(RESUMO_MODEL_ROW).getCell(9).style);
+  });
+
+  it('mapeia colunas de entrada sem incluir QUANTO ENVIAR', async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(ESTOQUE_TEMPLATE_PATH);
+    const sheet = workbook.getWorksheet('RESUMO')!;
+    const columns = resolveResumoInputColumns(sheet);
+
+    assert.deepEqual(columns, {
+      barcode: 1,
+      description: 2,
+      cdStock: 5,
+      pb1Stock: 7,
+      pb1Min: 8,
+      pb2Stock: 11,
+      pb2Min: 12,
+      pb3Stock: 15,
+      pb3Min: 16,
+      pb1Price: 20,
+      pb2Price: 22,
+      pb3Price: 24,
+    });
+
+    for (const protectedColumn of [9, 13, 17]) {
+      assert.ok(RESUMO_PROTECTED_COLUMNS.has(protectedColumn));
+      assert.notEqual(columns.pb1Min, protectedColumn);
+      assert.notEqual(columns.pb2Min, protectedColumn);
+      assert.notEqual(columns.pb3Min, protectedColumn);
+      assert.notEqual(columns.pb1Stock, protectedColumn);
+      assert.notEqual(columns.pb2Stock, protectedColumn);
+      assert.notEqual(columns.pb3Stock, protectedColumn);
+    }
+  });
+
+  it('3 produtos preenchem somente colunas de entrada e preservam QUANTO ENVIAR', async () => {
+    const data = mockData(['111', '222', '333'], (barcode, index) => ({
+      barcode,
+      totalCurrentStock: 10 + index,
+      stores: ['CD', 'PB1', 'PB2', 'PB3'].map((label) =>
+        store(label, {
+          found: true,
+          situation: 'OK',
+          barcode,
+          productName: `Produto ${barcode}`,
+          currentStock: 10 + index,
+          minimumStock: 2 + index,
+          salePrice: 5.99 + index,
+        }),
+      ),
+    }));
+
+    const buffer = await buildPeraStockExcelBuffer(data);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.getWorksheet('RESUMO')!;
+    const columns = resolveResumoInputColumns(sheet);
+    const writable = new Set(Object.values(columns));
+
+    for (let row = 3; row <= 5; row += 1) {
+      const priceIndex = row - 3;
+      assert.equal(sheet.getRow(row).getCell(columns.pb1Price).value, 5.99 + priceIndex);
+      assert.equal(sheet.getRow(row).getCell(columns.pb2Price).value, 5.99 + priceIndex);
+      assert.equal(sheet.getRow(row).getCell(columns.pb3Price).value, 5.99 + priceIndex);
+
+      for (const col of [9, 13, 17]) {
+        const cell = sheet.getRow(row).getCell(col);
+        assert.match(String(cell.formula ?? ''), /[GKO]\d+-[HLPR]\d+/);
+      }
+
+      for (const col of [21, 23, 25]) {
+        const cell = sheet.getRow(row).getCell(col);
+        assert.match(String(cell.formula ?? ''), /SUM\([TVX]\d+\/S\d+\)-1/);
+      }
+
+      for (let col = 1; col <= 18; col += 1) {
+        if (writable.has(col) || RESUMO_PROTECTED_COLUMNS.has(col)) continue;
+        const cell = sheet.getRow(row).getCell(col);
+        assert.equal(cell.value, null, `coluna ${col} da linha ${row} não deveria receber valor`);
+      }
+    }
   });
 
   it('ajusta referências de linha ao copiar fórmulas', () => {
