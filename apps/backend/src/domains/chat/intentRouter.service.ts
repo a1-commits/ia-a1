@@ -13,8 +13,8 @@ export type AgentIntent =
   | 'DESPEDIDA'
   | 'OUTROS';
 
-const SAUDACAO_RE =
-  /^(oi|ol[aá]|hey|e\s*a[ií]|bom\s+dia|boa\s+tarde|boa\s+noite|salve|opa)\b/i;
+const STANDALONE_SAUDACAO_RE =
+  /^(oi|ol[aá]|hey|e\s*a[ií]|bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|salve|opa)[!.?\s]*$/iu;
 const DESPEDIDA_RE =
   /^(obrigad[oa]|valeu|at[eé]\s+(mais|logo)|tchau|flw|falou|at[eé])\b/i;
 const CONVERSA_GERAL_RE =
@@ -66,7 +66,7 @@ export function classifyIntent(content: string, options?: { hasPendingProductCho
     return 'CONSULTA_CODIGO_BARRAS';
   }
 
-  if (SAUDACAO_RE.test(text)) return 'SAUDACAO';
+  if (STANDALONE_SAUDACAO_RE.test(text)) return 'SAUDACAO';
   if (DESPEDIDA_RE.test(text)) return 'DESPEDIDA';
   if (CONVERSA_GERAL_RE.test(text)) return 'CONVERSA_GERAL';
 

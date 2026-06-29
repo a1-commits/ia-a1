@@ -188,7 +188,7 @@ export function AgentEditor({
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <div className="font-medium text-[var(--fg)]">
-                  Integração Bling{peraAgent ? ' — PERA' : ''}
+                  Integração Bling{peraAgent ? ' — ROBO-COP' : ''}
                 </div>
                 <div className="text-sm text-[var(--muted)]">
                   Conecte até 4 lojas Bling para consulta de estoque por código de barras.

@@ -5,6 +5,7 @@ import {
   formatStockDetailedResponse,
   formatStockProductBlock,
   STOCK_BLOCK_SEPARATOR,
+  STOCK_QUERY_COMPLETE_MESSAGE,
 } from '../src/domains/chat/stockResponseFormat';
 import type { BlingStockProductBlock } from '../src/domains/integrations/blingStructured.types';
 import { formatBlingStructuredResponse } from '../src/domains/chat/responseFormatter.service';
@@ -118,11 +119,12 @@ describe('formatStockDetailedResponse — vários produtos', () => {
     assert.equal((text.match(/^Código:/gm) ?? []).length, 2);
     assert.match(text, /Código: 11111111/);
     assert.match(text, /Código: 22222222/);
+    assert.match(text, new RegExp(`${STOCK_QUERY_COMPLETE_MESSAGE.replace(/\n/g, '\\n')}$`));
   });
 });
 
-describe('formatStockBulkResponse — mais de 10 códigos', () => {
-  it('responde apenas com resumo e link', () => {
+describe('formatStockBulkResponse — modo resumido', () => {
+  it('responde apenas com conclusão e link para anexo', () => {
     const text = formatStockBulkResponse({
       stats: {
         produtosConsultados: 12,
@@ -133,18 +135,13 @@ describe('formatStockBulkResponse — mais de 10 códigos', () => {
       downloadUrl: 'https://example.com/planilha.xlsx',
     });
 
-    assert.match(text, /Consulta concluída ✅/);
-    assert.match(text, /Produtos consultados: 12/);
-    assert.match(text, /Produtos encontrados: 9/);
-    assert.match(text, /Produtos não encontrados: 3/);
-    assert.match(text, /Lojas consultadas:/);
-    assert.match(text, /• PB1/);
-    assert.match(text, /• PB2/);
-    assert.match(text, /• PB3/);
-    assert.match(text, /• PB4/);
-    assert.match(text, /📄 A planilha completa foi gerada\./);
-    assert.match(text, /⬇️ Download:/);
-    assert.match(text, /https:\/\/example\.com\/planilha\.xlsx/);
+    assert.equal(text, `${STOCK_QUERY_COMPLETE_MESSAGE}
+
+📄 A planilha completa foi gerada.
+
+⬇️ Download:
+https://example.com/planilha.xlsx`);
+    assert.doesNotMatch(text, /Produtos consultados:/);
     assert.doesNotMatch(text, /🏪 PB1/);
   });
 });

@@ -7,6 +7,10 @@ import { formatBrazilianSalePrice } from '../integrations/blingProductSearch';
 
 export const STOCK_BLOCK_SEPARATOR = '━━━━━━━━━━━━━━';
 
+export const STOCK_QUERY_COMPLETE_MESSAGE = `Consulta concluída.
+
+Pode enviar novos códigos quando desejar.`;
+
 function asInteger(value: number | null | undefined): number {
   if (value === null || value === undefined || Number.isNaN(value)) return 0;
   return Math.trunc(value);
@@ -91,7 +95,7 @@ export function formatStockDetailedResponse(produtos: BlingStockProductBlock[]):
     lines.push(...buildStockProductBlockLines(produtos[index]!));
   }
 
-  return lines.join('\n');
+  return `${lines.join('\n')}\n\n${STOCK_QUERY_COMPLETE_MESSAGE}`;
 }
 
 export function collectStockConsultedStores(produtos: BlingStockProductBlock[]): string[] {
@@ -110,32 +114,20 @@ export function formatStockBulkResponse(input: {
   downloadUrl?: string | null;
   excelGenerationFailed?: boolean;
 }): string {
-  const lines = [
-    'Consulta concluída ✅',
-    '',
-    `Produtos consultados: ${input.stats.produtosConsultados}`,
-    '',
-    `Produtos encontrados: ${input.stats.produtosEncontrados}`,
-    '',
-    `Produtos não encontrados: ${input.stats.produtosNaoEncontrados}`,
-    '',
-    'Lojas consultadas:',
-    '',
-    ...input.lojas.map((loja) => `• ${loja}`),
-    '',
-  ];
+  void input.stats;
+  void input.lojas;
+  void input.excelGenerationFailed;
+
+  const lines = [STOCK_QUERY_COMPLETE_MESSAGE];
 
   if (input.downloadUrl) {
     lines.push(
+      '',
       '📄 A planilha completa foi gerada.',
       '',
       '⬇️ Download:',
       input.downloadUrl,
     );
-  } else if (input.excelGenerationFailed) {
-    lines.push('Não foi possível gerar a planilha desta vez.');
-  } else {
-    lines.push('📄 A planilha completa foi gerada.');
   }
 
   return lines.join('\n');

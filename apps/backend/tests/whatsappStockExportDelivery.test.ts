@@ -40,12 +40,12 @@ describe('transformBulkReplyForWhatsappAttachment', () => {
       bulkReplyWithDownload('/api/exports/11111111-2222-4333-8444-555555555555?token=abc'),
     );
 
-    assert.match(text, /Consulta concluída ✅/);
-    assert.match(text, /Produtos consultados: 12/);
-    assert.match(text, /• PB4/);
+    assert.match(text, /Consulta concluída\./);
+    assert.match(text, /Pode enviar novos códigos quando desejar\./);
     assert.match(text, /📄 A planilha foi enviada junto desta conversa\./);
     assert.doesNotMatch(text, /\/api\/exports\//);
     assert.doesNotMatch(text, /⬇️ Download:/);
+    assert.doesNotMatch(text, /Produtos consultados:/);
   });
 });
 

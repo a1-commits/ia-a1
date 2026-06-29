@@ -73,7 +73,7 @@ export async function runAgentEngine(input: {
 
     const replyText = await formatBlingStructuredResponse(structured, messagePreview);
 
-    const rationale = `intent=${intent};bling=${structured.kind};formatter=llama|template`;
+    const rationale = `intent=${intent};bling=${structured.kind};formatter=template`;
 
     logAgentFlowComplete({
       conversationId: input.conversationId,
@@ -101,12 +101,12 @@ export async function runAgentEngine(input: {
     !hasBling &&
     /estoque|pre[cç]o|produto|barras|gtin|ean|sku|bling/i.test(messagePreview)
   ) {
-    const replyText = await formatConversationalResponse({
+    const replyText = formatConversationalResponse({
       intent: 'CONVERSA_GERAL',
       content: messagePreview,
       contactDisplayName: input.contactDisplayName,
     });
-    const rationale = 'intent=OUTROS;produto-mencionado-sem-bling;formatter=llama';
+    const rationale = 'intent=OUTROS;produto-mencionado-sem-bling;formatter=template';
     logAgentFlowComplete({
       conversationId: input.conversationId,
       messagePreview,
@@ -133,13 +133,13 @@ export async function runAgentEngine(input: {
     intent,
   });
 
-  const replyText = await formatConversationalResponse({
+  const replyText = formatConversationalResponse({
     intent,
     content: messagePreview,
     contactDisplayName: input.contactDisplayName,
   });
 
-  const rationale = `intent=${intent};formatter=llama-conversational`;
+  const rationale = `intent=${intent};formatter=template`;
 
   logAgentFlowComplete({
     conversationId: input.conversationId,

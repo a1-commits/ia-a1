@@ -5,8 +5,12 @@ import {
   BLING_AUTH_ERROR_MESSAGE,
   EMPTY_PRODUCT_MESSAGE,
   formatBlingStructuredResponse,
+  formatConversationalResponse,
   llamaPreservesBlingFacts,
+  NO_BARCODE_IDENTIFIED_MESSAGE,
+  ROBO_COP_GREETING_MESSAGE,
 } from '../src/domains/chat/responseFormatter.service';
+import { STOCK_QUERY_COMPLETE_MESSAGE } from '../src/domains/chat/stockResponseFormat';
 
 const sampleProduct = {
   codigoBarras: '7891234567890',
@@ -48,10 +52,18 @@ const sampleProduct = {
 };
 
 describe('responseFormatter — dados ERP', () => {
-  it('resultado vazio usa mensagem fixa sem inventar', async () => {
+  it('resultado vazio sem código identificado usa mensagem operacional', async () => {
     const text = await formatBlingStructuredResponse(
       { kind: 'empty', intent: 'CONSULTA_CODIGO_BARRAS', query: '999' },
       '999',
+    );
+    assert.equal(text, NO_BARCODE_IDENTIFIED_MESSAGE);
+  });
+
+  it('resultado vazio por busca de nome usa mensagem de produto não encontrado', async () => {
+    const text = await formatBlingStructuredResponse(
+      { kind: 'empty', intent: 'CONSULTA_PRODUTO', query: 'porta documento' },
+      'porta documento',
     );
     assert.equal(text, EMPTY_PRODUCT_MESSAGE);
   });
@@ -133,5 +145,28 @@ describe('responseFormatter — dados ERP', () => {
     assert.match(text, /1 - Coca Cola 2L/);
     assert.match(text, /2 - Coca Cola Zero 2L/);
     assert.match(text, /número da opção/);
+  });
+});
+
+describe('formatConversationalResponse — Robô-COP V1', () => {
+  it('saudação retorna mensagem fixa do Robô-COP', () => {
+    assert.equal(
+      formatConversationalResponse({ intent: 'SAUDACAO', content: 'oi' }),
+      ROBO_COP_GREETING_MESSAGE,
+    );
+  });
+
+  it('despedida retorna mensagem de consulta concluída', () => {
+    assert.equal(
+      formatConversationalResponse({ intent: 'DESPEDIDA', content: 'obrigado' }),
+      STOCK_QUERY_COMPLETE_MESSAGE,
+    );
+  });
+
+  it('outros retorna orientação para enviar códigos', () => {
+    assert.equal(
+      formatConversationalResponse({ intent: 'OUTROS', content: 'ajuda' }),
+      NO_BARCODE_IDENTIFIED_MESSAGE,
+    );
   });
 });

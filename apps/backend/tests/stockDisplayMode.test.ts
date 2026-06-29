@@ -72,6 +72,7 @@ describe('formatBlingStructuredResponse — displayMode', () => {
     const text = await formatBlingStructuredResponse(mockStock([mockProduct('78908901')]), '78908901');
     assert.match(text, /Código: 78908901/);
     assert.match(text, /🏪 PB1/);
+    assert.match(text, /Consulta concluída\./);
     assert.doesNotMatch(text, /Consulta concluída ✅/);
   });
 
@@ -81,9 +82,12 @@ describe('formatBlingStructuredResponse — displayMode', () => {
       mockStock(produtos, 'https://example.com/planilha.xlsx'),
       'codes',
     );
-    assert.match(text, /Consulta concluída ✅/);
-    assert.match(text, /Produtos consultados: 5/);
+    assert.match(text, /Consulta concluída\./);
+    assert.match(text, /Pode enviar novos códigos quando desejar\./);
+    assert.match(text, /📄 A planilha completa foi gerada\./);
+    assert.match(text, /https:\/\/example\.com\/planilha\.xlsx/);
     assert.doesNotMatch(text, /^Código:/m);
+    assert.doesNotMatch(text, /Produtos consultados:/);
   });
 
   it('10 produtos encontrados responde bulk', async () => {
@@ -92,9 +96,10 @@ describe('formatBlingStructuredResponse — displayMode', () => {
       mockStock(produtos, 'https://example.com/planilha.xlsx'),
       'codes',
     );
-    assert.match(text, /Consulta concluída ✅/);
-    assert.match(text, /Produtos consultados: 10/);
+    assert.match(text, /Consulta concluída\./);
+    assert.match(text, /Pode enviar novos códigos quando desejar\./);
     assert.doesNotMatch(text, /^Código:/m);
+    assert.doesNotMatch(text, /Produtos consultados:/);
   });
 
   it('10 consultados com 1 encontrado responde detalhado', async () => {
@@ -104,7 +109,7 @@ describe('formatBlingStructuredResponse — displayMode', () => {
     ];
     const text = await formatBlingStructuredResponse(mockStock(produtos), 'codes');
     assert.equal((text.match(/^Código:/gm) ?? []).length, 10);
-    assert.doesNotMatch(text, /Consulta concluída ✅/);
+    assert.doesNotMatch(text, /Produtos consultados:/);
   });
 
   it('2 produtos encontrados responde bulk com planilha', async () => {
@@ -113,11 +118,11 @@ describe('formatBlingStructuredResponse — displayMode', () => {
       mockStock(produtos, 'https://example.com/planilha.xlsx'),
       'codes',
     );
-    assert.match(text, /Consulta concluída ✅/);
-    assert.match(text, /Produtos consultados: 2/);
+    assert.match(text, /Consulta concluída\./);
     assert.match(text, /📄 A planilha completa foi gerada\./);
     assert.match(text, /https:\/\/example\.com\/planilha\.xlsx/);
     assert.doesNotMatch(text, /^🏪 PB1$/m);
+    assert.doesNotMatch(text, /Produtos consultados:/);
   });
 
   it('11 produtos responde bulk com planilha', async () => {
@@ -126,23 +131,19 @@ describe('formatBlingStructuredResponse — displayMode', () => {
       mockStock(produtos, 'https://example.com/planilha.xlsx'),
       'codes',
     );
-    assert.match(text, /Consulta concluída ✅/);
-    assert.match(text, /Produtos consultados: 11/);
-    assert.match(text, /Lojas consultadas:/);
-    assert.match(text, /• PB1/);
-    assert.match(text, /• PB2/);
-    assert.match(text, /• PB3/);
-    assert.match(text, /• PB4/);
+    assert.match(text, /Consulta concluída\./);
     assert.match(text, /📄 A planilha completa foi gerada\./);
     assert.match(text, /⬇️ Download:/);
     assert.match(text, /https:\/\/example\.com\/planilha\.xlsx/);
     assert.doesNotMatch(text, /^🏪 PB1$/m);
+    assert.doesNotMatch(text, /Lojas consultadas:/);
   });
 
   it('50 produtos responde bulk', async () => {
     const produtos = Array.from({ length: 50 }, (_, i) => mockProduct(`7890000${String(i).padStart(4, '0')}`));
     const text = await formatBlingStructuredResponse(mockStock(produtos), 'codes');
-    assert.match(text, /Produtos consultados: 50/);
+    assert.match(text, /Consulta concluída\./);
     assert.doesNotMatch(text, /^Código:/m);
+    assert.doesNotMatch(text, /Produtos consultados:/);
   });
 });

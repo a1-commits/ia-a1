@@ -26,7 +26,13 @@ describe('intentRouter — classificação por regras', () => {
 
   it('saudação → SAUDACAO sem Bling', () => {
     assert.equal(classifyIntent('oi'), 'SAUDACAO');
+    assert.equal(classifyIntent('tudo bem'), 'SAUDACAO');
+    assert.equal(classifyIntent('bom dia'), 'SAUDACAO');
     assert.equal(intentRequiresBling(classifyIntent('oi')), false);
+  });
+
+  it('saudação com texto extra não é SAUDACAO', () => {
+    assert.notEqual(classifyIntent('oi preciso de ajuda'), 'SAUDACAO');
   });
 
   it('despedida → DESPEDIDA', () => {

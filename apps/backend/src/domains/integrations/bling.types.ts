@@ -41,7 +41,7 @@ export type BlingMultiStoreStockResponse = {
   results: BlingStockByBarcodeResult[];
 };
 
-export const PERA_DEFAULT_INSTRUCTIONS = `Você é o PERA.
+export const PERA_DEFAULT_INSTRUCTIONS = `Você é o Robô-COP.
 
 Sua função é consultar estoque no Bling usando código de barras.
 
