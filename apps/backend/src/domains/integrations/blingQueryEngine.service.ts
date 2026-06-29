@@ -22,7 +22,7 @@ import {
   takeProductDisambiguationChoice,
 } from './productDisambiguationStore';
 import { createPeraStockExcelExport } from '../exports/peraStockExport.service';
-import { shouldUsePeraStockSummary } from './blingStockExcel';
+import { countFoundBarcodes, shouldUsePeraStockSummary } from './blingStockExcel';
 
 function classifyBlingErrorMessage(error: string | null | undefined): BlingApiErrorKind {
   const lower = (error ?? '').toLowerCase();
@@ -409,7 +409,7 @@ export async function executeBlingQuery(input: {
 
   const mapped = mapStockResponse(intent, data, filterBelowMinimum);
 
-  if (shouldUsePeraStockSummary(data.barcodes.length) && mapped.kind === 'stock') {
+  if (shouldUsePeraStockSummary(countFoundBarcodes(data)) && mapped.kind === 'stock') {
     let downloadUrl: string | null = null;
     let excelGenerationFailed = false;
     try {

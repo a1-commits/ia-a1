@@ -1,11 +1,14 @@
-import ExcelJS from 'exceljs';
 import type { BlingMultiStoreStockResponse, BlingStockStoreResult } from './bling.types';
 import { formatBrazilianSalePrice } from './blingProductSearch';
+import { buildEstoqueTemplateExcelBuffer } from '../exports/estoqueTemplateExcel.service';
 
+export const PERA_STOCK_BULK_MIN_FOUND_PRODUCTS = 2;
+
+/** @deprecated Use PERA_STOCK_BULK_MIN_FOUND_PRODUCTS — regra antiga (>10 códigos). */
 export const PERA_STOCK_DETAILED_MAX_CODES = 10;
 
-export function shouldUsePeraStockSummary(codeCount: number): boolean {
-  return codeCount > PERA_STOCK_DETAILED_MAX_CODES;
+export function shouldUsePeraStockSummary(foundProductCount: number): boolean {
+  return foundProductCount >= PERA_STOCK_BULK_MIN_FOUND_PRODUCTS;
 }
 
 function sortStoresByLabel(stores: BlingStockStoreResult[]): BlingStockStoreResult[] {
@@ -122,31 +125,7 @@ export function summarizeStoreItemCounts(data: BlingMultiStoreStockResponse): Ar
 }
 
 export async function buildPeraStockExcelBuffer(data: BlingMultiStoreStockResponse): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'PERA';
-  workbook.created = new Date();
-
-  const sheet = workbook.addWorksheet('Estoque');
-  const storeLabels = [...data.stores]
-    .map((store) => store.storeLabel)
-    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
-
-  sheet.columns = [
-    { header: 'Código', key: 'codigo', width: 20 },
-    { header: 'Produto', key: 'produto', width: 42 },
-    ...storeLabels.flatMap((label) => [
-      { header: label, key: label, width: 12 },
-      { header: `Mín ${label}`, key: `min_${label}`, width: 12 },
-    ]),
-  ];
-  sheet.getRow(1).font = { bold: true };
-
-  for (const row of buildPeraStockExcelPivotRows(data)) {
-    sheet.addRow(row);
-  }
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
+  return buildEstoqueTemplateExcelBuffer(data);
 }
 
 export function buildPeraStockExportFileName(date = new Date()): string {

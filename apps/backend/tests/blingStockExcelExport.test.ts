@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { BlingConnectionStatus } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import {
+  ESTOQUE_TEMPLATE_PATH,
+  adjustFormulaRowReferences,
+  listResumoFormulaColumns,
+  replicateResumoModelRow,
+  RESUMO_MODEL_ROW,
+} from '../src/domains/exports/estoqueTemplateExcel.service';
+import {
   buildPeraStockExcelRows,
   buildPeraStockExportFileName,
   formatExcelSituationLabel,
-  PERA_STOCK_DETAILED_MAX_CODES,
+  PERA_STOCK_BULK_MIN_FOUND_PRODUCTS,
   shouldUsePeraStockSummary,
   buildPeraStockExcelBuffer,
 } from '../src/domains/integrations/blingStockExcel';
@@ -50,14 +59,16 @@ function mockData(
 }
 
 describe('PERA stock excel export threshold', () => {
-  it('9 códigos não entram no modo resumido', () => {
-    assert.equal(PERA_STOCK_DETAILED_MAX_CODES, 10);
-    assert.equal(shouldUsePeraStockSummary(9), false);
-    assert.equal(shouldUsePeraStockSummary(10), false);
+  it('0 ou 1 produto encontrado não entra no modo resumido', () => {
+    assert.equal(PERA_STOCK_BULK_MIN_FOUND_PRODUCTS, 2);
+    assert.equal(shouldUsePeraStockSummary(0), false);
+    assert.equal(shouldUsePeraStockSummary(1), false);
   });
 
-  it('11 códigos entram no modo resumido', () => {
-    assert.equal(shouldUsePeraStockSummary(11), true);
+  it('2 ou mais produtos encontrados entram no modo resumido', () => {
+    assert.equal(shouldUsePeraStockSummary(2), true);
+    assert.equal(shouldUsePeraStockSummary(10), true);
+    assert.equal(shouldUsePeraStockSummary(100), true);
   });
 });
 
@@ -169,22 +180,40 @@ describe('buildPeraStockExcelRows', () => {
 });
 
 describe('buildPeraStockExcelBuffer', () => {
-  it('gera workbook xlsx com colunas por loja', async () => {
-    const data = mockData(['7891234567890'], () => ({
-      barcode: '7891234567890',
+  it('gera workbook xlsx a partir do template com aba RESUMO', async () => {
+    const data = mockData(['7891234567890', '7899876543210'], (barcode, index) => ({
+      barcode,
       totalCurrentStock: 10,
       stores: [
+        store('CD', {
+          found: true,
+          situation: 'OK',
+          barcode,
+          productName: index === 0 ? 'Item A' : 'Item B',
+          currentStock: 20 + index,
+          minimumStock: null,
+        }),
         store('PB1', {
           found: true,
           situation: 'OK',
-          productName: 'Item',
-          salePrice: 5.99,
+          barcode,
+          productName: index === 0 ? 'Item A' : 'Item B',
           currentStock: 10,
           minimumStock: 3,
         }),
         store('PB2', {
-          found: false,
-          situation: 'NAO_ENCONTRADO',
+          found: true,
+          situation: 'OK',
+          barcode,
+          currentStock: 5,
+          minimumStock: 1,
+        }),
+        store('PB3', {
+          found: true,
+          situation: 'OK',
+          barcode,
+          currentStock: 2,
+          minimumStock: 0,
         }),
       ],
     }));
@@ -193,20 +222,177 @@ describe('buildPeraStockExcelBuffer', () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
 
-    const sheet = workbook.getWorksheet('Estoque');
-    assert.ok(sheet);
-    assert.deepEqual(
-      (sheet.getRow(1).values as string[]).slice(1),
-      ['Código', 'Produto', 'PB1', 'Mín PB1', 'PB2', 'Mín PB2'],
-    );
+    assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ['RESUMO', 'PB1', 'PB2', 'PB3']);
 
-    const row = sheet.getRow(2);
-    assert.equal(row.getCell(1).value, '7891234567890');
-    assert.equal(row.getCell(2).value, 'Item');
-    assert.equal(row.getCell(3).value, 10);
-    assert.equal(row.getCell(4).value, 3);
-    assert.equal(row.getCell(5).value, 'N/A');
-    assert.equal(row.getCell(6).value, '');
+    const sheet = workbook.getWorksheet('RESUMO');
+    assert.ok(sheet);
+
+    const row1 = sheet.getRow(3);
+    assert.equal(row1.getCell(1).value, '7891234567890');
+    assert.equal(row1.getCell(2).value, 'Item A');
+    assert.equal(row1.getCell(5).value, 20);
+    assert.equal(row1.getCell(7).value, 10);
+    assert.equal(row1.getCell(8).value, 3);
+    assert.equal(row1.getCell(11).value, 5);
+    assert.equal(row1.getCell(12).value, 1);
+    assert.equal(row1.getCell(15).value, 2);
+    assert.equal(row1.getCell(16).value, 0);
+    assert.match(String(row1.getCell(9).formula ?? ''), /G3-H3/);
+
+    const row2 = sheet.getRow(4);
+    assert.equal(row2.getCell(1).value, '7899876543210');
+    assert.equal(row2.getCell(2).value, 'Item B');
+    assert.equal(row2.getCell(5).value, 21);
+
+    assert.equal(sheet.getRow(5).getCell(1).value, null);
+
+    const pb1 = workbook.getWorksheet('PB1');
+    assert.ok(pb1);
+    assert.match(String(pb1.getCell('A3').formula ?? ''), /RESUMO!B3/);
+  });
+
+  it('inclui somente produtos encontrados na planilha', async () => {
+    const data = mockData(['7891', '7892', '7893'], (barcode, index) => ({
+      barcode,
+      totalCurrentStock: index === 0 ? 5 : 0,
+      stores: [
+        store('PB1', {
+          found: index < 2,
+          situation: index < 2 ? 'OK' : 'NAO_ENCONTRADO',
+          barcode,
+          productName: index < 2 ? `Produto ${index + 1}` : null,
+          currentStock: index < 2 ? 5 : null,
+          minimumStock: index < 2 ? 1 : null,
+        }),
+      ],
+    }));
+
+    const buffer = await buildPeraStockExcelBuffer(data);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.getWorksheet('RESUMO')!;
+
+    assert.equal(sheet.getRow(3).getCell(1).value, '7891');
+    assert.equal(sheet.getRow(4).getCell(1).value, '7892');
+    assert.equal(sheet.getRow(5).getCell(1).value, null);
+  });
+
+  it('suporta 100 produtos encontrados com fórmulas na aba RESUMO', async () => {
+    const barcodes = Array.from({ length: 100 }, (_, index) => `789000000${String(index).padStart(3, '0')}`);
+    const data = mockData(barcodes, (barcode) => ({
+      barcode,
+      totalCurrentStock: 1,
+      stores: [
+        store('PB1', {
+          found: true,
+          situation: 'OK',
+          barcode,
+          productName: `Produto ${barcode}`,
+          currentStock: 1,
+          minimumStock: 0,
+        }),
+      ],
+    }));
+
+    const buffer = await buildPeraStockExcelBuffer(data);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.getWorksheet('RESUMO')!;
+
+    assert.equal(sheet.getRow(3).getCell(1).value, barcodes[0]);
+    assert.equal(sheet.getRow(102).getCell(1).value, barcodes[99]);
+    assert.deepEqual(listResumoFormulaColumns(sheet, 102), [4, 6, 9, 13, 17, 21, 23, 25]);
+    assert.equal(sheet.getRow(103).getCell(1).value, null);
+  });
+});
+
+describe('estoque template — revisão técnica', () => {
+  it('não altera o template original em disco após geração', async () => {
+    const hashBefore = createHash('sha256').update(readFileSync(ESTOQUE_TEMPLATE_PATH)).digest('hex');
+
+    const data = mockData(['7891234567890', '7899876543210'], (barcode, index) => ({
+      barcode,
+      totalCurrentStock: 1,
+      stores: [
+        store('PB1', {
+          found: true,
+          situation: 'OK',
+          barcode,
+          productName: `Produto ${index}`,
+          currentStock: 3,
+          minimumStock: 1,
+        }),
+      ],
+    }));
+
+    await buildPeraStockExcelBuffer(data);
+
+    const hashAfter = createHash('sha256').update(readFileSync(ESTOQUE_TEMPLATE_PATH)).digest('hex');
+    assert.equal(hashAfter, hashBefore);
+  });
+
+  it('preserva fórmulas e estilos nas linhas pré-existentes do template', async () => {
+    const templateWorkbook = new ExcelJS.Workbook();
+    await templateWorkbook.xlsx.readFile(ESTOQUE_TEMPLATE_PATH);
+    const templateSheet = templateWorkbook.getWorksheet('RESUMO')!;
+    const templateFormula = templateSheet.getRow(3).getCell(9).formula;
+    const templateFont = templateSheet.getRow(3).getCell(9).style?.font;
+    const templateBorder = templateSheet.getRow(3).getCell(9).style?.border;
+
+    const data = mockData(['7891234567890'], () => ({
+      barcode: '7891234567890',
+      totalCurrentStock: 1,
+      stores: [
+        store('PB1', {
+          found: true,
+          situation: 'OK',
+          productName: 'Item',
+          currentStock: 8,
+          minimumStock: 2,
+        }),
+      ],
+    }));
+
+    const buffer = await buildPeraStockExcelBuffer(data);
+    const outputWorkbook = new ExcelJS.Workbook();
+    await outputWorkbook.xlsx.load(buffer);
+    const outputSheet = outputWorkbook.getWorksheet('RESUMO')!;
+
+    assert.equal(outputSheet.getRow(3).getCell(9).formula, templateFormula);
+    assert.deepEqual(outputSheet.getRow(3).getCell(9).style?.font, templateFont);
+    assert.deepEqual(outputSheet.getRow(3).getCell(9).style?.border, templateBorder);
+  });
+
+  it('replica linha modelo completa acima de 101 produtos', async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(ESTOQUE_TEMPLATE_PATH);
+    const sheet = workbook.getWorksheet('RESUMO')!;
+
+    replicateResumoModelRow(sheet, 150);
+
+    assert.deepEqual(listResumoFormulaColumns(sheet, RESUMO_MODEL_ROW), [4, 6, 9, 13, 17, 21, 23, 25]);
+    assert.deepEqual(listResumoFormulaColumns(sheet, 150), [4, 6, 9, 13, 17, 21, 23, 25]);
+    assert.equal(sheet.getRow(150).getCell(4).formula, "'PB1'!H150+'PB2'!G150+'PB3'!G150");
+    assert.equal(sheet.getRow(150).getCell(9).formula, 'G150-H150');
+    assert.equal(sheet.getRow(150).getCell(21).formula, 'SUM(T150/S150)-1');
+    assert.deepEqual(sheet.getRow(150).getCell(9).style, sheet.getRow(RESUMO_MODEL_ROW).getCell(9).style);
+  });
+
+  it('ajusta referências de linha ao copiar fórmulas', () => {
+    assert.equal(
+      adjustFormulaRowReferences("'PB1'!H4+'PB2'!G4+'PB3'!G4", 4, 150),
+      "'PB1'!H150+'PB2'!G150+'PB3'!G150",
+    );
+    assert.equal(
+      adjustFormulaRowReferences('MAX((E4-SUM(J4,N4,R4)))', 4, 150),
+      'MAX((E150-SUM(J150,N150,R150)))',
+    );
+    assert.equal(adjustFormulaRowReferences('E14+E4', 4, 150), 'E14+E150');
+  });
+
+  it('template está acessível pelo caminho de produção (__dirname)', () => {
+    assert.match(ESTOQUE_TEMPLATE_PATH, /templates[\\/]+estoque-template\.xlsx$/);
+    assert.ok(readFileSync(ESTOQUE_TEMPLATE_PATH).byteLength > 0);
   });
 });
 
@@ -234,7 +420,7 @@ describe('formatExcelSituationLabel', () => {
 });
 
 describe('formatPeraStockResponse detailed mode', () => {
-  it('até 10 códigos mantém resposta detalhada no chat', () => {
+  it('10 códigos encontrados mantém resposta detalhada no chat', () => {
     const barcodes = Array.from({ length: 10 }, (_, index) => `78900000000${index}`);
     const data = mockData(barcodes, (barcode) => ({
       barcode,

@@ -1,10 +1,10 @@
 import type { BlingStockProductBlock, BlingStockBulkStats } from '../integrations/blingStructured.types';
-import { PERA_STOCK_DETAILED_MAX_CODES } from '../integrations/blingStockExcel';
+import { PERA_STOCK_BULK_MIN_FOUND_PRODUCTS } from '../integrations/blingStockExcel';
 
 export type StockDisplayMode = 'detailed' | 'bulk';
 
-export function resolveStockDisplayMode(productCount: number): StockDisplayMode {
-  return productCount > PERA_STOCK_DETAILED_MAX_CODES ? 'bulk' : 'detailed';
+export function resolveStockDisplayMode(foundProductCount: number): StockDisplayMode {
+  return foundProductCount >= PERA_STOCK_BULK_MIN_FOUND_PRODUCTS ? 'bulk' : 'detailed';
 }
 
 function isProductFound(product: BlingStockProductBlock): boolean {

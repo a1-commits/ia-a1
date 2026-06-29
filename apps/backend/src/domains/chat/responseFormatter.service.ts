@@ -52,10 +52,11 @@ function formatMultipleProductsDeterministic(
 }
 
 function formatStockDeterministic(data: Extract<BlingStructuredResult, { kind: 'stock' }>): string {
-  const displayMode = resolveStockDisplayMode(data.produtos.length);
+  const stats = buildStockBulkStats(data.produtos);
+  const displayMode = resolveStockDisplayMode(stats.produtosEncontrados);
   if (displayMode === 'bulk') {
     return formatStockBulkResponse({
-      stats: buildStockBulkStats(data.produtos),
+      stats,
       lojas: collectStockConsultedStores(data.produtos),
       downloadUrl: data.downloadUrl,
       excelGenerationFailed: data.excelGenerationFailed,
@@ -69,9 +70,9 @@ function collectStockFactTokens(
 ): string[] {
   const tokens: string[] = [STOCK_BLOCK_SEPARATOR];
   if (data.downloadUrl) tokens.push(data.downloadUrl);
-  const displayMode = resolveStockDisplayMode(data.produtos.length);
+  const stats = buildStockBulkStats(data.produtos);
+  const displayMode = resolveStockDisplayMode(stats.produtosEncontrados);
   if (displayMode === 'bulk') {
-    const stats = buildStockBulkStats(data.produtos);
     tokens.push(String(stats.produtosConsultados));
     tokens.push(String(stats.produtosEncontrados));
     tokens.push(String(stats.produtosNaoEncontrados));
