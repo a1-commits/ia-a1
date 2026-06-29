@@ -1,4 +1,5 @@
 import path from 'path';
+import { rm } from 'fs/promises';
 import qrcodeTerminal from 'qrcode-terminal';
 import QRCode from 'qrcode';
 import OpenAI from 'openai';
@@ -30,6 +31,17 @@ import {
   shouldSkipAutoReplyForCustomer,
   WHATSAPP_AI_FALLBACK_REPLY,
 } from './whatsappFlow.helpers';
+import { appendWhatsappEvent } from '../domains/whatsapp/whatsappEventLog.service';
+import {
+  buildHealthChecks,
+  deriveConnectionStatus,
+  formatDurationMs,
+} from '../domains/whatsapp/whatsappHealth.utils';
+import type {
+  WhatsappHealthSnapshot,
+  WhatsappProviderProbe,
+  WhatsappQrResponse,
+} from '../domains/whatsapp/whatsappProvider.types';
 
 type WhatsAppRuntimeStatus = {
   enabled: boolean;
@@ -111,6 +123,28 @@ class WhatsAppService {
 
   private erpRequestWindowByJid = new Map<string, number[]>();
 
+  private listenerRegistered = false;
+
+  private clientInitialized = false;
+
+  private lastActivityAt: string | null = null;
+
+  private lastMessagePreview: string | null = null;
+
+  private messagesTodayCount = 0;
+
+  private messagesTodayDate = '';
+
+  private qrImageDataUrl: string | null = null;
+
+  private connectedPhone: string | null = null;
+
+  private sessionStartedAt: string | null = null;
+
+  private watchdogErrorState = false;
+
+  private opsModelLabel: string | null = null;
+
   getStatus(): WhatsAppRuntimeStatus {
     return this.status;
   }
@@ -141,9 +175,164 @@ class WhatsAppService {
     return next;
   }
 
+  setWatchdogError(active: boolean): void {
+    this.watchdogErrorState = active;
+  }
+
+  private authStoragePath(): string {
+    return path.resolve(__dirname, '../../storage/whatsapp-auth');
+  }
+
+  private sessionStoragePath(): string {
+    return path.join(this.authStoragePath(), 'session-agente-mobi-local');
+  }
+
+  private touchActivity(preview?: string): void {
+    this.lastActivityAt = new Date().toISOString();
+    if (preview) this.lastMessagePreview = preview.slice(0, 200);
+  }
+
+  private bumpMessagesToday(): void {
+    const today = new Date().toISOString().slice(0, 10);
+    if (this.messagesTodayDate !== today) {
+      this.messagesTodayDate = today;
+      this.messagesTodayCount = 0;
+    }
+    this.messagesTodayCount += 1;
+  }
+
+  private isBrowserRunning(): boolean {
+    const client = this.client as (Client & { pupBrowser?: { isConnected?: () => boolean } }) | null;
+    if (!client?.pupBrowser) return false;
+    return typeof client.pupBrowser.isConnected === 'function' ? client.pupBrowser.isConnected() : true;
+  }
+
+  probeOperations(): WhatsappProviderProbe {
+    return {
+      clientExists: Boolean(this.client),
+      browserRunning: this.isBrowserRunning(),
+      sessionActive: this.status.connected || this.status.qrPending,
+      initializeFinished: this.clientInitialized,
+      listenerRegistered: this.listenerRegistered,
+      lastActivityAt: this.lastActivityAt,
+      connected: this.status.connected,
+    };
+  }
+
+  getHealthSnapshot(): WhatsappHealthSnapshot {
+    const status = deriveConnectionStatus({
+      enabled: this.status.enabled,
+      connected: this.status.connected,
+      waitingQr: this.status.qrPending,
+      starting: this.starting,
+      watchdogError: this.watchdogErrorState,
+      lastError: this.status.lastError,
+    });
+    const probe = this.probeOperations();
+    const uptime =
+      this.status.startedAt && this.status.connected
+        ? formatDurationMs(Date.now() - Date.parse(this.status.startedAt))
+        : null;
+    const sessionAge =
+      this.sessionStartedAt && this.status.connected
+        ? formatDurationMs(Date.now() - Date.parse(this.sessionStartedAt))
+        : null;
+
+    return {
+      enabled: this.status.enabled,
+      status,
+      connected: this.status.connected,
+      authenticated: this.status.connected,
+      waitingQr: this.status.qrPending,
+      clientInitialized: this.clientInitialized,
+      browserRunning: probe.browserRunning,
+      listenerRunning: probe.listenerRegistered && probe.initializeFinished,
+      lastActivity: this.lastActivityAt,
+      uptime,
+      phone: this.connectedPhone,
+      sessionAge,
+      messagesToday: this.messagesTodayCount,
+      lastMessage: this.lastMessagePreview,
+      provider: 'whatsapp-web.js',
+      model: this.opsModelLabel,
+      version: '1.34.6',
+      checks: buildHealthChecks(probe, status),
+      lastError: this.status.lastError,
+    };
+  }
+
+  getQrSnapshot(): WhatsappQrResponse {
+    if (!this.qrImageDataUrl) {
+      return { available: false };
+    }
+    return { available: true, image: this.qrImageDataUrl };
+  }
+
+  private async destroyClient(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.destroy();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendWhatsappEvent({
+        level: 'warn',
+        event: 'client.destroy_failed',
+        message,
+      });
+    }
+    this.client = null;
+    this.clientInitialized = false;
+    this.listenerRegistered = false;
+  }
+
+  async reconnectClient(): Promise<void> {
+    appendWhatsappEvent({ event: 'reconnecting', message: 'Reconexão solicitada (sessão preservada).' });
+    await this.destroyClient();
+    this.starting = false;
+    await this.start();
+    appendWhatsappEvent({ event: 'reconnected', message: 'Reconexão executada.' });
+  }
+
+  async restartClient(): Promise<void> {
+    appendWhatsappEvent({ event: 'restart.requested', message: 'Reinício do cliente solicitado.' });
+    await this.destroyClient();
+    this.starting = false;
+    await this.start();
+    appendWhatsappEvent({ event: 'client.restarted', message: 'Cliente reiniciado.' });
+  }
+
+  async resetSession(): Promise<void> {
+    appendWhatsappEvent({
+      level: 'warn',
+      event: 'session.reset_requested',
+      message: 'Reset de sessão solicitado.',
+    });
+    await this.destroyClient();
+    this.starting = false;
+    try {
+      await rm(this.authStoragePath(), { recursive: true, force: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendWhatsappEvent({ level: 'error', event: 'session.reset_failed', message });
+      throw error;
+    }
+    this.qrImageDataUrl = null;
+    this.connectedPhone = null;
+    this.sessionStartedAt = null;
+    this.status.connected = false;
+    this.status.qrPending = false;
+    await this.start();
+    appendWhatsappEvent({ event: 'session.reset_completed', message: 'Sessão apagada; novo QR será gerado.' });
+  }
+
   async start(): Promise<void> {
     if (!env.WHATSAPP_ENABLED) {
       console.log('[whatsapp] integração desativada (WHATSAPP_ENABLED=false)');
+      appendWhatsappEvent({
+        level: 'warn',
+        event: 'client.disabled',
+        message: 'Integração desativada (WHATSAPP_ENABLED=false).',
+      });
       return;
     }
     if (!this.status.allowedNumber) {
@@ -162,8 +351,9 @@ class WhatsAppService {
     if (this.client || this.starting) return;
 
     this.starting = true;
+    appendWhatsappEvent({ event: 'client.starting', message: 'Cliente WhatsApp iniciando.' });
     try {
-      const authPath = path.resolve(__dirname, '../../storage/whatsapp-auth');
+      const authPath = this.authStoragePath();
       this.client = new Client({
         authStrategy: new LocalAuth({ clientId: 'agente-mobi-local', dataPath: authPath }),
         puppeteer: {
@@ -176,12 +366,25 @@ class WhatsAppService {
         this.status.qrPending = true;
         this.status.connected = false;
         this.status.lastError = null;
+        this.watchdogErrorState = false;
         console.log('[whatsapp] QR gerado. Escaneie com o WhatsApp no celular.');
+        appendWhatsappEvent({ event: 'qr.generated', message: 'QR Code gerado para pareamento.' });
         qrcodeTerminal.generate(qr, { small: false });
         const qrPngPath = path.resolve(__dirname, '../../storage/whatsapp-qr.png');
         void QRCode.toFile(qrPngPath, qr, { width: 480, margin: 2 }).then(() => {
           console.log(`[whatsapp] QR salvo em: ${qrPngPath}`);
         });
+        void QRCode.toDataURL(qr, { width: 480, margin: 2 })
+          .then((dataUrl) => {
+            this.qrImageDataUrl = dataUrl;
+          })
+          .catch((error) => {
+            appendWhatsappEvent({
+              level: 'error',
+              event: 'qr.encode_failed',
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
       });
 
       this.client.on('ready', () => {
@@ -189,8 +392,24 @@ class WhatsAppService {
         this.status.connected = true;
         this.status.lastError = null;
         this.status.startedAt = new Date().toISOString();
+        this.sessionStartedAt = this.sessionStartedAt ?? new Date().toISOString();
+        this.qrImageDataUrl = null;
+        this.watchdogErrorState = false;
         console.log('[whatsapp] conectado');
+        appendWhatsappEvent({ event: 'client.connected', message: 'Cliente WhatsApp conectado.' });
+        const info = (this.client as Client & { info?: { wid?: { user?: string }; pushname?: string } })?.info;
+        if (info?.wid?.user) {
+          this.connectedPhone = info.wid.user;
+        }
+        if (info?.pushname) {
+          this.opsModelLabel = info.pushname;
+        }
+        this.touchActivity('Cliente conectado');
         this.startReminderLoop();
+      });
+
+      this.client.on('authenticated', () => {
+        appendWhatsappEvent({ event: 'client.authenticated', message: 'Cliente autenticado.' });
       });
 
       this.client.on('disconnected', (reason) => {
@@ -198,8 +417,15 @@ class WhatsAppService {
         this.status.qrPending = false;
         this.status.lastError = `desconectado: ${String(reason)}`;
         console.log(`[whatsapp] conexão encerrada (${String(reason)}), tentando reconectar...`);
+        appendWhatsappEvent({
+          level: 'warn',
+          event: 'client.disconnected',
+          message: `Cliente desconectado: ${String(reason)}`,
+        });
         this.stopReminderLoop();
         this.client = null;
+        this.clientInitialized = false;
+        this.listenerRegistered = false;
         this.safeReconnect();
       });
 
@@ -207,18 +433,33 @@ class WhatsAppService {
         this.status.connected = false;
         this.status.lastError = `falha de autenticação: ${msg}`;
         console.log(`[whatsapp] falha de autenticação: ${msg}`);
+        appendWhatsappEvent({
+          level: 'error',
+          event: 'auth.failure',
+          message: String(msg),
+        });
         this.stopReminderLoop();
       });
 
       this.client.on('message', (message) => {
         void this.onIncomingMessage(message);
       });
+      this.listenerRegistered = true;
 
       await this.client.initialize();
+      this.clientInitialized = true;
+      appendWhatsappEvent({ event: 'client.initialized', message: 'initialize() concluído.' });
     } catch (error) {
       this.status.lastError = error instanceof Error ? error.message : 'erro ao inicializar WhatsApp';
       console.log(`[whatsapp] erro ao iniciar: ${this.status.lastError}`);
+      appendWhatsappEvent({
+        level: 'error',
+        event: 'client.start_failed',
+        message: this.status.lastError,
+      });
       this.client = null;
+      this.clientInitialized = false;
+      this.listenerRegistered = false;
       this.safeReconnect();
     } finally {
       this.starting = false;
@@ -877,6 +1118,10 @@ class WhatsAppService {
           to: jid,
           fileName: attachment.fileName,
         });
+        appendWhatsappEvent({
+          event: 'document.sent',
+          message: `Documento enviado: ${attachment.fileName}`,
+        });
       } catch (attachmentError) {
         const errMessage =
           attachmentError instanceof Error ? attachmentError.message : String(attachmentError);
@@ -891,8 +1136,14 @@ class WhatsAppService {
     await message.reply(text.slice(0, 3500));
     this.markReplySent(jid);
     this.lastBotReplyFingerprintByJid.set(jid, `${jid}:${text.trim()}`);
+    this.bumpMessagesToday();
+    this.touchActivity(text);
     logWhatsappFlowHotfix('reply.send.success', { to: jid });
     console.log('[whatsapp] resposta enviada');
+    appendWhatsappEvent({
+      event: 'message.sent',
+      message: `Mensagem enviada para ${jid}: ${text.slice(0, 80)}`,
+    });
   }
 
   private consumeErpQuota(jid: string): boolean {
@@ -952,6 +1203,13 @@ class WhatsAppService {
         console.log('[whatsapp] ignorando mensagem vazia');
         return;
       }
+
+      this.bumpMessagesToday();
+      this.touchActivity(body);
+      appendWhatsappEvent({
+        event: 'message.received',
+        message: `Mensagem recebida de ${senderForLog ?? jid}: ${body.slice(0, 80)}`,
+      });
 
       const firstLine = body.trim().split(/\n/)[0]?.trim().toLowerCase() ?? '';
       const isCommand = firstLine.startsWith('!');

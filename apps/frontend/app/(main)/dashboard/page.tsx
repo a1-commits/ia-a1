@@ -7,6 +7,7 @@ import { countActiveAgents, countAgents } from '@/lib/agents-api';
 import { api } from '@/lib/api';
 import { countContactsWithAgent } from '@/lib/contacts-api';
 import { countConnectedTools } from '@/lib/integrations-hub';
+import { whatsappStatusLabel, type WhatsappHealth } from '@/lib/whatsapp-operations';
 
 type HubOverview = {
   ai: {
@@ -36,14 +37,20 @@ export default function DashboardPage(): React.ReactElement {
   const [activeAgentCount, setActiveAgentCount] = useState(0);
   const [contactsWithAgent, setContactsWithAgent] = useState(0);
   const [connectedTools, setConnectedTools] = useState(0);
+  const [whatsappHealth, setWhatsappHealth] = useState<WhatsappHealth | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api<HubOverview>('/api/operator/overview');
+      const [res, waHealth] = await Promise.all([
+        api<HubOverview>('/api/operator/overview'),
+        api<WhatsappHealth>('/api/whatsapp/health').catch(() => null),
+      ]);
       setData(res);
+      setWhatsappHealth(waHealth);
     } catch {
       setData(null);
+      setWhatsappHealth(null);
     }
     setAgentCount(await countAgents());
     setActiveAgentCount(await countActiveAgents());
@@ -92,8 +99,20 @@ export default function DashboardPage(): React.ReactElement {
           />
           <PlatformMetricCard
             label="WhatsApp conectado"
-            value={loading ? '…' : data?.whatsapp?.status?.connected ? 'Sim' : 'Não'}
-            tone={data?.whatsapp?.status?.connected ? 'success' : 'neutral'}
+            value={
+              loading
+                ? '…'
+                : whatsappHealth
+                  ? whatsappStatusLabel(whatsappHealth.status)
+                  : '🔴 Offline'
+            }
+            tone={
+              whatsappHealth?.status === 'CONNECTED'
+                ? 'success'
+                : whatsappHealth?.status === 'CONNECTING' || whatsappHealth?.status === 'WAITING_QR'
+                  ? 'primary'
+                  : 'neutral'
+            }
           />
           <PlatformMetricCard
             label="Modelo local ativo"

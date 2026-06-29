@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
+  { href: '/whatsapp', label: 'WhatsApp', icon: '📱' },
   { href: '/agentes', label: 'Agentes', icon: '🤖' },
   { href: '/contatos', label: 'Contatos', icon: '👥' },
   { href: '/ferramentas', label: 'Ferramentas', icon: '🔌' },
